@@ -1,0 +1,6 @@
+{
+  "name": "CoinBridge P2P",
+  "description": "Peer-to-peer USDT/INR cryptocurrency exchange platform with verified KYC onboarding, escrow settlement workflows, merchant liquidity tools, and AI-assisted risk monitoring.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

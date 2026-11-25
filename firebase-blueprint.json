@@ -1,0 +1,1081 @@
+{
+  "entities": {
+    "UserAccount": {
+      "title": "UserAccount",
+      "description": "Public-safe user summary record without PII.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "username": { "type": "string", "minLength": 3, "maxLength": 40, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "role": { "type": "string", "enum": ["BUYER", "SELLER", "MERCHANT", "LIQUIDITY_PROVIDER", "TREASURY_ADMIN", "SUPPORT_AGENT", "COMPLIANCE_OFFICER", "ADMIN", "SUPER_ADMIN"] },
+        "kycStatus": { "type": "string", "enum": ["NOT_STARTED", "PENDING", "UNDER_REVIEW", "APPROVED", "VERIFIED", "REJECTED", "ADDITIONAL_INFO_REQUIRED", "SUSPENDED", "EXPIRED"] },
+        "accountStatus": { "type": "string", "enum": ["ACTIVE", "SUSPENDED", "DELETION_REQUESTED"] },
+        "walletAddress": { "type": "string", "maxLength": 128 },
+        "isDemo": { "type": "boolean" },
+        "withdrawalLocked": { "type": "boolean" },
+        "restrictedReason": { "type": "string", "maxLength": 300 },
+        "kycExpiresAtMs": { "type": "integer" },
+        "completedTrades": { "type": "integer" },
+        "completionRateBps": { "type": "integer" },
+        "ratingAvgBps": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "username", "displayName", "role", "kycStatus", "accountStatus", "completedTrades", "completionRateBps", "ratingAvgBps", "createdAt", "updatedAt"]
+    },
+    "UserPrivateProfile": {
+      "title": "UserPrivateProfile",
+      "description": "Isolated PII profile accessible only to the user and authorized administrators.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "fullLegalName": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "email": { "type": "string", "format": "email", "maxLength": 160 },
+        "mobile": { "type": "string", "maxLength": 24 },
+        "country": { "type": "string", "minLength": 2, "maxLength": 64 },
+        "residentialAddress": { "type": "string", "maxLength": 300 },
+        "dateOfBirth": { "type": "string", "maxLength": 20 },
+        "twoFactorEnabled": { "type": "boolean" },
+        "twoFactorMethod": { "type": "string", "enum": ["NONE", "TOTP"] },
+        "totpSealedSecret": { "type": "string", "maxLength": 512 },
+        "whitelistOnlyWithdrawals": { "type": "boolean" },
+        "notifyEmail": { "type": "boolean" },
+        "notifyInApp": { "type": "boolean" },
+        "notifySecurityAlerts": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "fullLegalName", "email", "country", "twoFactorEnabled", "notifyEmail", "notifyInApp", "notifySecurityAlerts", "updatedAt"]
+    },
+    "P2POffer": {
+      "title": "P2POffer",
+      "description": "Marketplace liquidity offer posted by a merchant or verified trader.",
+      "type": "object",
+      "properties": {
+        "merchantUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "merchantUsername": { "type": "string", "minLength": 3, "maxLength": 40 },
+        "verificationLevel": { "type": "string", "enum": ["BASIC", "VERIFIED", "PREMIUM"] },
+        "side": { "type": "string", "enum": ["SELL_USDT", "BUY_USDT", "SELL", "BUY"] },
+        "asset": { "type": "string", "minLength": 2, "maxLength": 12 },
+        "fiatCurrency": { "type": "string", "enum": ["INR"] },
+        "rateInrPaise": { "type": "integer" },
+        "availableUsdtMicro": { "type": "integer" },
+        "availableAssetE8": { "type": "integer" },
+        "minInrPaise": { "type": "integer" },
+        "maxInrPaise": { "type": "integer" },
+        "paymentMethods": { "type": "array", "description": "Up to 5 supported payment rails" },
+        "network": { "type": "string", "enum": ["TRON_TRC20", "ETHEREUM_ERC20", "POLYGON", "BSC", "BITCOIN", "SOLANA", "XRP_LEDGER", "DOGECOIN"] },
+        "avgCompletionMins": { "type": "integer" },
+        "completedTrades": { "type": "integer" },
+        "completionRateBps": { "type": "integer" },
+        "merchantRatingBps": { "type": "integer" },
+        "merchantVolumeUsdtMicro": { "type": "integer" },
+        "termsNote": { "type": "string", "maxLength": 400 },
+        "isActive": { "type": "boolean" },
+        "isSandbox": { "type": "boolean" },
+        "isDemo": { "type": "boolean" },
+        "demoLabel": { "type": "string", "maxLength": 32 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["merchantUid", "merchantUsername", "verificationLevel", "side", "asset", "fiatCurrency", "rateInrPaise", "availableUsdtMicro", "minInrPaise", "maxInrPaise", "paymentMethods", "network", "avgCompletionMins", "completedTrades", "completionRateBps", "isActive", "isSandbox", "createdAt", "updatedAt"]
+    },
+    "P2POrder": {
+      "title": "P2POrder",
+      "description": "Atomic peer-to-peer crypto/INR order with escrow and risk state.",
+      "type": "object",
+      "properties": {
+        "orderCode": { "type": "string", "minLength": 6, "maxLength": 32 },
+        "offerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "side": { "type": "string", "enum": ["BUY_USDT", "SELL_USDT", "BUY", "SELL"] },
+        "asset": { "type": "string", "minLength": 2, "maxLength": 12 },
+        "buyerUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "sellerUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "buyerUsername": { "type": "string", "minLength": 2, "maxLength": 40 },
+        "sellerUsername": { "type": "string", "minLength": 2, "maxLength": 40 },
+        "usdtMicro": { "type": "integer" },
+        "quantityE8": { "type": "integer" },
+        "inrPaise": { "type": "integer" },
+        "rateInrPaise": { "type": "integer" },
+        "feeUsdtMicro": { "type": "integer" },
+        "feeE8": { "type": "integer" },
+        "tdsInrPaise": { "type": "integer" },
+        "paymentMethod": { "type": "string", "enum": ["UPI", "IMPS", "NEFT", "RTGS", "BANK_TRANSFER"] },
+        "network": { "type": "string", "enum": ["TRON_TRC20", "ETHEREUM_ERC20", "POLYGON", "BSC", "BITCOIN", "SOLANA", "XRP_LEDGER", "DOGECOIN"] },
+        "buyerWalletAddress": { "type": "string", "maxLength": 128 },
+        "sellerWalletAddress": { "type": "string", "maxLength": 128 },
+        "paymentAccountSnapshot": { "type": "string", "maxLength": 240 },
+        "escrowStatus": { "type": "string", "enum": ["NONE", "RESERVED", "RELEASED", "REFUNDED"] },
+        "escrowTxHash": { "type": "string", "maxLength": 128 },
+        "paymentRef": { "type": "string", "maxLength": 128 },
+        "paymentMode": { "type": "string", "enum": ["SANDBOX", "PROVIDER_API"] },
+        "riskScore": { "type": "integer" },
+        "riskLevel": { "type": "string", "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"] },
+        "status": { "type": "string", "enum": ["CREATED", "AWAITING_ACCEPTANCE", "ACCEPTED", "ESCROW_RESERVED", "PAYMENT_PENDING", "PAYMENT_SUBMITTED", "PAYMENT_VERIFIED", "SETTLING", "COMPLETED", "CANCELLED", "EXPIRED", "DISPUTED", "REFUNDED"] },
+        "buyerRating": { "type": "integer" },
+        "releaseConfirmed2FA": { "type": "boolean" },
+        "completedAtMs": { "type": "integer" },
+        "isSandbox": { "type": "boolean" },
+        "expiresAtMs": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["orderCode", "offerId", "side", "buyerUid", "sellerUid", "buyerUsername", "sellerUsername", "usdtMicro", "inrPaise", "rateInrPaise", "feeUsdtMicro", "tdsInrPaise", "paymentMethod", "network", "escrowStatus", "paymentMode", "riskScore", "riskLevel", "status", "isSandbox", "expiresAtMs", "createdAt", "updatedAt"]
+    },
+    "OrderEvent": {
+      "title": "OrderEvent",
+      "description": "Audit trail entry inside an order subcollection.",
+      "type": "object",
+      "properties": {
+        "orderId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "actorUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "action": { "type": "string", "minLength": 2, "maxLength": 64 },
+        "fromStatus": { "type": "string", "maxLength": 32 },
+        "toStatus": { "type": "string", "maxLength": 32 },
+        "note": { "type": "string", "maxLength": 400 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["orderId", "actorUid", "action", "fromStatus", "toStatus", "note", "createdAt"]
+    },
+    "OrderMessage": {
+      "title": "OrderMessage",
+      "description": "Real-time counterparty chat message inside a P2P order.",
+      "type": "object",
+      "properties": {
+        "orderId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "senderUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "senderUsername": { "type": "string", "minLength": 2, "maxLength": 40 },
+        "senderRole": { "type": "string", "enum": ["BUYER", "SELLER", "ADMIN"] },
+        "body": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["orderId", "senderUid", "senderUsername", "senderRole", "body", "createdAt"]
+    },
+    "KycSubmission": {
+      "title": "KycSubmission",
+      "description": "Masked KYC and Video KYC verification dossier reviewed by compliance.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "fullLegalName": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "dateOfBirth": { "type": "string", "minLength": 8, "maxLength": 20 },
+        "country": { "type": "string", "minLength": 2, "maxLength": 64 },
+        "residentialAddress": { "type": "string", "minLength": 5, "maxLength": 300 },
+        "idType": { "type": "string", "enum": ["PAN", "PASSPORT", "AADHAAR_MASKED", "DRIVING_LICENSE"] },
+        "maskedIdNumber": { "type": "string", "minLength": 4, "maxLength": 32 },
+        "panMasked": { "type": "string", "maxLength": 16 },
+        "documentExpiry": { "type": "string", "maxLength": 20 },
+        "livenessMethod": { "type": "string", "enum": ["SANDBOX_LIVENESS", "PROVIDER_API", "VIDEO_KYC_ADAPTER"] },
+        "videoStatus": { "type": "string", "enum": ["NOT_STARTED", "CHALLENGE_ISSUED", "LIVENESS_PASSED", "MANUAL_REVIEW"] },
+        "videoChallengePrompt": { "type": "string", "maxLength": 240 },
+        "livenessScore": { "type": "integer" },
+        "faceMatchScore": { "type": "integer" },
+        "providerMode": { "type": "string", "maxLength": 64 },
+        "kycExpiresAtMs": { "type": "integer" },
+        "verificationHistory": { "type": "array", "description": "Up to 15 audit entries" },
+        "isDemoRecord": { "type": "boolean" },
+        "bankAccountLast4": { "type": "string", "minLength": 4, "maxLength": 4 },
+        "bankIfsc": { "type": "string", "minLength": 11, "maxLength": 11 },
+        "accountHolderName": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "pepDeclared": { "type": "boolean" },
+        "sanctionsDeclaredClear": { "type": "boolean" },
+        "sourceOfFunds": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "status": { "type": "string", "enum": ["NOT_STARTED", "PENDING", "UNDER_REVIEW", "APPROVED", "VERIFIED", "REJECTED", "ADDITIONAL_INFO_REQUIRED", "SUSPENDED", "EXPIRED"] },
+        "reviewerNote": { "type": "string", "maxLength": 500 },
+        "reviewedByUid": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "fullLegalName", "dateOfBirth", "country", "residentialAddress", "idType", "maskedIdNumber", "livenessMethod", "bankAccountLast4", "bankIfsc", "accountHolderName", "pepDeclared", "sanctionsDeclaredClear", "sourceOfFunds", "status", "createdAt", "updatedAt"]
+    },
+    "PaymentAccount": {
+      "title": "PaymentAccount",
+      "description": "User INR bank or UPI payment rail (masked, owner-isolated).",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "methodType": { "type": "string", "enum": ["UPI", "IMPS", "NEFT", "RTGS", "BANK_TRANSFER"] },
+        "accountHolderName": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "bankName": { "type": "string", "maxLength": 100 },
+        "maskedAccountNumber": { "type": "string", "maxLength": 32 },
+        "ifsc": { "type": "string", "maxLength": 11 },
+        "upiId": { "type": "string", "maxLength": 80 },
+        "verificationStatus": { "type": "string", "enum": ["PENDING", "VERIFIED", "REJECTED"] },
+        "isActive": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "methodType", "accountHolderName", "verificationStatus", "isActive", "createdAt", "updatedAt"]
+    },
+    "PaymentRecord": {
+      "title": "PaymentRecord",
+      "description": "INR payment reconciliation and UTR uniqueness log.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "orderId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "orderCode": { "type": "string", "minLength": 4, "maxLength": 32 },
+        "method": { "type": "string", "enum": ["UPI", "IMPS", "NEFT", "RTGS", "BANK_TRANSFER"] },
+        "referenceId": { "type": "string", "minLength": 6, "maxLength": 48 },
+        "inrPaise": { "type": "integer" },
+        "status": { "type": "string", "enum": ["PENDING", "VERIFIED", "DUPLICATE_FLAGGED", "FAILED"] },
+        "isSandbox": { "type": "boolean" },
+        "reconciliationNote": { "type": "string", "maxLength": 300 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "orderId", "orderCode", "method", "referenceId", "inrPaise", "status", "isSandbox", "reconciliationNote", "createdAt", "updatedAt"]
+    },
+    "WalletLedger": {
+      "title": "WalletLedger",
+      "description": "User USDT ledger balances in micro-USDT (10^-6).",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "availableUsdtMicro": { "type": "integer" },
+        "reservedUsdtMicro": { "type": "integer" },
+        "connectedAddress": { "type": "string", "maxLength": 128 },
+        "preferredNetwork": { "type": "string", "enum": ["TRON_TRC20", "ETHEREUM_ERC20", "POLYGON", "BSC"] },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "availableUsdtMicro", "reservedUsdtMicro", "preferredNetwork", "updatedAt"]
+    },
+    "WalletTransaction": {
+      "title": "WalletTransaction",
+      "description": "Individual deposit, withdrawal, or escrow settlement transaction.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "type": { "type": "string", "enum": ["DEPOSIT", "WITHDRAWAL", "ESCROW_LOCK", "ESCROW_RELEASE", "ESCROW_REFUND"] },
+        "network": { "type": "string", "enum": ["TRON_TRC20", "ETHEREUM_ERC20", "POLYGON", "BSC"] },
+        "asset": { "type": "string", "enum": ["USDT"] },
+        "amountMicro": { "type": "integer" },
+        "networkFeeMicro": { "type": "integer" },
+        "txHash": { "type": "string", "maxLength": 128 },
+        "toAddress": { "type": "string", "maxLength": 128 },
+        "isSandbox": { "type": "boolean" },
+        "status": { "type": "string", "enum": ["PENDING", "CONFIRMING", "CONFIRMED", "FAILED"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "type", "network", "asset", "amountMicro", "networkFeeMicro", "isSandbox", "status", "createdAt", "updatedAt"]
+    },
+    "MerchantProfile": {
+      "title": "MerchantProfile",
+      "description": "Registered P2P merchant and liquidity provider profile (including labeled demo merchants).",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "businessName": { "type": "string", "minLength": 2, "maxLength": 100 },
+        "merchantType": { "type": "string", "enum": ["INDIVIDUAL", "BUSINESS"] },
+        "verificationLevel": { "type": "string", "enum": ["BASIC", "VERIFIED", "PREMIUM", "SUSPENDED"] },
+        "declaredLiquidityUsdtMicro": { "type": "integer" },
+        "commissionBps": { "type": "integer" },
+        "minOrderInrPaise": { "type": "integer" },
+        "maxOrderInrPaise": { "type": "integer" },
+        "isAvailable": { "type": "boolean" },
+        "isDemo": { "type": "boolean" },
+        "demoMerchantCode": { "type": "string", "maxLength": 32 },
+        "profileBio": { "type": "string", "maxLength": 300 },
+        "avgCompletionMins": { "type": "integer" },
+        "disputedOrders": { "type": "integer" },
+        "replacedByVerifiedAtMs": { "type": "integer" },
+        "completedOrders": { "type": "integer" },
+        "totalVolumeUsdtMicro": { "type": "integer" },
+        "ratingAvgBps": { "type": "integer" },
+        "vipTier": { "type": "string", "enum": ["BRONZE", "SILVER", "GOLD", "PLATINUM"] },
+        "visibilityMode": { "type": "string", "enum": ["PUBLIC", "HIGH_VOLUME_ONLY", "HIDDEN"] },
+        "showVipBadge": { "type": "boolean" },
+        "agreementAccepted": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "businessName", "merchantType", "verificationLevel", "declaredLiquidityUsdtMicro", "commissionBps", "minOrderInrPaise", "maxOrderInrPaise", "isAvailable", "completedOrders", "totalVolumeUsdtMicro", "ratingAvgBps", "agreementAccepted", "createdAt", "updatedAt"]
+    },
+    "DisputeCase": {
+      "title": "DisputeCase",
+      "description": "Order dispute case managed by support and compliance.",
+      "type": "object",
+      "properties": {
+        "orderId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "orderCode": { "type": "string", "minLength": 4, "maxLength": 32 },
+        "raisedByUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "counterpartyUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "category": { "type": "string", "enum": ["PAYMENT_NOT_RECEIVED", "PAYMENT_NOT_ACKNOWLEDGED", "INCORRECT_AMOUNT", "SELLER_NOT_RELEASING", "BUYER_NOT_PAYING", "SUSPICIOUS_TRANSACTION", "DUPLICATE_PAYMENT", "OTHER"] },
+        "description": { "type": "string", "minLength": 10, "maxLength": 1000 },
+        "paymentRef": { "type": "string", "maxLength": 128 },
+        "evidenceSummary": { "type": "string", "maxLength": 600 },
+        "evidenceItems": { "type": "array", "description": "Up to 6 evidence metadata references" },
+        "escalatedToCompliance": { "type": "boolean" },
+        "escalatedAtMs": { "type": "integer" },
+        "status": { "type": "string", "enum": ["OPEN", "UNDER_REVIEW", "AWAITING_EVIDENCE", "ESCALATED", "RESOLVED", "REJECTED"] },
+        "assignedOfficerUid": { "type": "string", "maxLength": 128 },
+        "resolutionNote": { "type": "string", "maxLength": 600 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["orderId", "orderCode", "raisedByUid", "counterpartyUid", "category", "description", "status", "createdAt", "updatedAt"]
+    },
+    "RiskAssessment": {
+      "title": "RiskAssessment",
+      "description": "AI-assisted risk assessment record supporting human review.",
+      "type": "object",
+      "properties": {
+        "orderId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "subjectUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "score": { "type": "integer" },
+        "level": { "type": "string", "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"] },
+        "reasons": { "type": "array", "description": "Up to 8 risk factors" },
+        "recommendedAction": { "type": "string", "enum": ["ALLOW", "REQUEST_ADDITIONAL_VERIFICATION", "APPLY_LIMITS", "HOLD_MANUAL_REVIEW", "ESCALATE_COMPLIANCE", "BLOCK"] },
+        "humanDecision": { "type": "string", "enum": ["PENDING_REVIEW", "APPROVED", "HELD", "ESCALATED", "BLOCKED"] },
+        "reviewedByUid": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["orderId", "subjectUid", "score", "level", "reasons", "recommendedAction", "humanDecision", "createdAt", "updatedAt"]
+    },
+    "SupportTicket": {
+      "title": "SupportTicket",
+      "description": "Customer contact or support inquiry.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "minLength": 2, "maxLength": 100 },
+        "email": { "type": "string", "format": "email", "maxLength": 160 },
+        "category": { "type": "string", "enum": ["GENERAL", "KYC", "PAYMENT", "ESCROW", "DISPUTE", "MERCHANT", "COMPLIANCE"] },
+        "subject": { "type": "string", "minLength": 3, "maxLength": 160 },
+        "message": { "type": "string", "minLength": 10, "maxLength": 2000 },
+        "status": { "type": "string", "enum": ["OPEN", "IN_PROGRESS", "RESOLVED"] },
+        "priority": { "type": "string", "enum": ["LOW", "NORMAL", "HIGH", "URGENT"] },
+        "assignedAgentUid": { "type": "string", "maxLength": 128 },
+        "escalatedToCompliance": { "type": "boolean" },
+        "adminReply": { "type": "string", "maxLength": 1000 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "email", "category", "subject", "message", "status", "createdAt", "updatedAt"]
+    },
+    "UserNotification": {
+      "title": "UserNotification",
+      "description": "In-app notification for order, KYC, or security events.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "type": { "type": "string", "enum": ["KYC", "ORDER", "PAYMENT", "ESCROW", "DISPUTE", "SECURITY", "WALLET"] },
+        "title": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "body": { "type": "string", "minLength": 2, "maxLength": 400 },
+        "read": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "type", "title", "body", "read", "createdAt"]
+    },
+    "SecuritySession": {
+      "title": "SecuritySession",
+      "description": "Recorded login device session and suspicious-login indicator.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "deviceLabel": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "browser": { "type": "string", "minLength": 2, "maxLength": 64 },
+        "os": { "type": "string", "minLength": 2, "maxLength": 64 },
+        "timezone": { "type": "string", "minLength": 2, "maxLength": 64 },
+        "suspicious": { "type": "boolean" },
+        "suspiciousReason": { "type": "string", "maxLength": 240 },
+        "trusted": { "type": "boolean" },
+        "revoked": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "lastActiveAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "deviceLabel", "browser", "os", "timezone", "suspicious", "trusted", "revoked", "createdAt", "lastActiveAt"]
+    },
+    "WithdrawalWhitelist": {
+      "title": "WithdrawalWhitelist",
+      "description": "Owner-approved blockchain withdrawal destination address.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "label": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "network": { "type": "string", "enum": ["TRON_TRC20", "ETHEREUM_ERC20", "POLYGON", "BSC"] },
+        "address": { "type": "string", "minLength": 20, "maxLength": 128 },
+        "isActive": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "label", "network", "address", "isActive", "createdAt", "updatedAt"]
+    },
+    "PriceAlert": {
+      "title": "PriceAlert",
+      "description": "User USDT/INR target price alert evaluated against live rates.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "targetRateInrPaise": { "type": "integer" },
+        "condition": { "type": "string", "enum": ["ABOVE", "BELOW"] },
+        "isActive": { "type": "boolean" },
+        "triggered": { "type": "boolean" },
+        "lastTriggeredAtMs": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "targetRateInrPaise", "condition", "isActive", "triggered", "createdAt"]
+    },
+    "ComplianceCase": {
+      "title": "ComplianceCase",
+      "description": "AML, Video KYC escalation, duplicate UTR, and account restriction case file.",
+      "type": "object",
+      "properties": {
+        "subjectUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "subjectUsername": { "type": "string", "minLength": 2, "maxLength": 40 },
+        "caseType": { "type": "string", "enum": ["VIDEO_KYC_ESCALATION", "AML_ALERT", "SUSPICIOUS_LOGIN", "DUPLICATE_UTR", "ACCOUNT_RESTRICTION", "FRAUD_CLUSTER", "MERCHANT_ANOMALY"] },
+        "severity": { "type": "string", "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"] },
+        "status": { "type": "string", "enum": ["OPEN", "INVESTIGATING", "ESCALATED", "CLOSED"] },
+        "summary": { "type": "string", "minLength": 5, "maxLength": 600 },
+        "assignedOfficerUid": { "type": "string", "maxLength": 128 },
+        "resolutionNote": { "type": "string", "maxLength": 600 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["subjectUid", "subjectUsername", "caseType", "severity", "status", "summary", "createdAt", "updatedAt"]
+    },
+    "PlatformSettings": {
+      "title": "PlatformSettings",
+      "description": "Admin-configurable exchange fees, limits, spreads, and sandbox flags.",
+      "type": "object",
+      "properties": {
+        "brandName": { "type": "string", "minLength": 2, "maxLength": 60 },
+        "buyerFeeBps": { "type": "integer" },
+        "sellerFeeBps": { "type": "integer" },
+        "merchantCommissionBps": { "type": "integer" },
+        "tdsRateBps": { "type": "integer" },
+        "depositFeeUsdtMicro": { "type": "integer" },
+        "withdrawalFeeUsdtMicro": { "type": "integer" },
+        "minOrderInrPaise": { "type": "integer" },
+        "maxOrderInrPaise": { "type": "integer" },
+        "dailyLimitInrPaise": { "type": "integer" },
+        "monthlyLimitInrPaise": { "type": "integer" },
+        "baseUsdtInrPaise": { "type": "integer" },
+        "sandboxMode": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["brandName", "buyerFeeBps", "sellerFeeBps", "merchantCommissionBps", "tdsRateBps", "depositFeeUsdtMicro", "withdrawalFeeUsdtMicro", "minOrderInrPaise", "maxOrderInrPaise", "dailyLimitInrPaise", "monthlyLimitInrPaise", "baseUsdtInrPaise", "sandboxMode", "updatedAt"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Immutable compliance and security audit trail.",
+      "type": "object",
+      "properties": {
+        "actorUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "action": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "targetType": { "type": "string", "minLength": 2, "maxLength": 40 },
+        "targetId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "summary": { "type": "string", "minLength": 2, "maxLength": 400 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["actorUid", "action", "targetType", "targetId", "summary", "createdAt"]
+    },
+    "WalletAddress": {
+      "title": "WalletAddress",
+      "description": "Deterministic per-user per-network USDT deposit address.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "network": { "type": "string", "enum": ["TRON_TRC20", "ETHEREUM_ERC20", "POLYGON", "BSC"] },
+        "address": { "type": "string", "minLength": 20, "maxLength": 128 },
+        "label": { "type": "string", "maxLength": 80 },
+        "isSandbox": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "network", "address", "isSandbox", "createdAt"]
+    },
+    "SupportedNetwork": {
+      "title": "SupportedNetwork",
+      "description": "Admin-managed blockchain network configuration, confirmations, fees, and withdrawal limits.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "minLength": 2, "maxLength": 64 },
+        "tokenStandard": { "type": "string", "minLength": 2, "maxLength": 24 },
+        "usdtContractAddress": { "type": "string", "minLength": 20, "maxLength": 128 },
+        "testnetName": { "type": "string", "maxLength": 64 },
+        "testnetContractAddress": { "type": "string", "maxLength": 128 },
+        "requiredConfirmations": { "type": "integer" },
+        "estimatedNetworkFeeUsdtMicro": { "type": "integer" },
+        "platformWithdrawalFeeUsdtMicro": { "type": "integer" },
+        "minDepositUsdtMicro": { "type": "integer" },
+        "minWithdrawalUsdtMicro": { "type": "integer" },
+        "maxWithdrawalUsdtMicro": { "type": "integer" },
+        "dailyWithdrawalLimitUsdtMicro": { "type": "integer" },
+        "depositsEnabled": { "type": "boolean" },
+        "withdrawalsEnabled": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "tokenStandard", "usdtContractAddress", "requiredConfirmations", "estimatedNetworkFeeUsdtMicro", "platformWithdrawalFeeUsdtMicro", "minDepositUsdtMicro", "minWithdrawalUsdtMicro", "maxWithdrawalUsdtMicro", "dailyWithdrawalLimitUsdtMicro", "depositsEnabled", "withdrawalsEnabled", "updatedAt"]
+    },
+    "SupportedToken": {
+      "title": "SupportedToken",
+      "description": "Token contract registry for USDT across supported chains.",
+      "type": "object",
+      "properties": {
+        "symbol": { "type": "string", "enum": ["USDT"] },
+        "name": { "type": "string", "minLength": 2, "maxLength": 64 },
+        "network": { "type": "string", "enum": ["TRON_TRC20", "ETHEREUM_ERC20", "POLYGON", "BSC"] },
+        "contractAddress": { "type": "string", "minLength": 20, "maxLength": 128 },
+        "decimals": { "type": "integer" },
+        "isActive": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["symbol", "name", "network", "contractAddress", "decimals", "isActive", "updatedAt"]
+    },
+    "DepositTransaction": {
+      "title": "DepositTransaction",
+      "description": "On-chain or testnet USDT deposit record with confirmation and compliance tracking.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "username": { "type": "string", "maxLength": 40 },
+        "network": { "type": "string", "enum": ["TRON_TRC20", "ETHEREUM_ERC20", "POLYGON", "BSC"] },
+        "tokenSymbol": { "type": "string", "enum": ["USDT"] },
+        "contractAddress": { "type": "string", "minLength": 20, "maxLength": 128 },
+        "depositAddress": { "type": "string", "minLength": 20, "maxLength": 128 },
+        "txHash": { "type": "string", "minLength": 16, "maxLength": 128 },
+        "eventIndex": { "type": "integer" },
+        "amountMicro": { "type": "integer" },
+        "confirmations": { "type": "integer" },
+        "requiredConfirmations": { "type": "integer" },
+        "status": { "type": "string", "enum": ["AWAITING_DEPOSIT", "DETECTED", "CONFIRMING", "UNDER_COMPLIANCE_REVIEW", "CREDITED", "FAILED", "REJECTED"] },
+        "verificationSource": { "type": "string", "enum": ["TRONGRID_TESTNET", "SANDBOX_FAUCET", "ONCHAIN_VERIFIED"] },
+        "complianceNote": { "type": "string", "maxLength": 400 },
+        "reviewedByUid": { "type": "string", "maxLength": 128 },
+        "isSandbox": { "type": "boolean" },
+        "creditedAtMs": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "network", "tokenSymbol", "contractAddress", "depositAddress", "txHash", "eventIndex", "amountMicro", "confirmations", "requiredConfirmations", "status", "verificationSource", "isSandbox", "createdAt", "updatedAt"]
+    },
+    "WithdrawalTransaction": {
+      "title": "WithdrawalTransaction",
+      "description": "External USDT withdrawal request with 2FA verification, fee breakdown, risk score, and lifecycle status.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "username": { "type": "string", "maxLength": 40 },
+        "network": { "type": "string", "enum": ["TRON_TRC20", "ETHEREUM_ERC20", "POLYGON", "BSC"] },
+        "tokenSymbol": { "type": "string", "enum": ["USDT"] },
+        "destinationAddress": { "type": "string", "minLength": 20, "maxLength": 128 },
+        "requestedAmountMicro": { "type": "integer" },
+        "networkFeeMicro": { "type": "integer" },
+        "platformFeeMicro": { "type": "integer" },
+        "totalDebitMicro": { "type": "integer" },
+        "netSentMicro": { "type": "integer" },
+        "status": { "type": "string", "enum": ["PENDING", "UNDER_REVIEW", "APPROVED", "PROCESSING", "BROADCASTED", "CONFIRMING", "COMPLETED", "FAILED", "REJECTED", "CANCELLED"] },
+        "riskScore": { "type": "integer" },
+        "riskLevel": { "type": "string", "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"] },
+        "riskReasons": { "type": "array", "description": "Up to 8 risk factors" },
+        "twoFactorVerified": { "type": "boolean" },
+        "idempotencyKey": { "type": "string", "minLength": 8, "maxLength": 128 },
+        "txHash": { "type": "string", "maxLength": 128 },
+        "reviewedByUid": { "type": "string", "maxLength": 128 },
+        "reviewerNote": { "type": "string", "maxLength": 400 },
+        "failureReason": { "type": "string", "maxLength": 400 },
+        "isSandbox": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "network", "tokenSymbol", "destinationAddress", "requestedAmountMicro", "networkFeeMicro", "platformFeeMicro", "totalDebitMicro", "netSentMicro", "status", "riskScore", "riskLevel", "riskReasons", "twoFactorVerified", "idempotencyKey", "isSandbox", "createdAt", "updatedAt"]
+    },
+    "BlockchainEvent": {
+      "title": "BlockchainEvent",
+      "description": "Immutable idempotency record keyed by network_txHash_eventIndex preventing duplicate deposit credits.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "network": { "type": "string", "enum": ["TRON_TRC20", "ETHEREUM_ERC20", "POLYGON", "BSC"] },
+        "txHash": { "type": "string", "minLength": 16, "maxLength": 128 },
+        "eventIndex": { "type": "integer" },
+        "direction": { "type": "string", "enum": ["DEPOSIT", "WITHDRAWAL"] },
+        "contractAddress": { "type": "string", "minLength": 20, "maxLength": 128 },
+        "amountMicro": { "type": "integer" },
+        "confirmations": { "type": "integer" },
+        "processedRecordId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "network", "txHash", "eventIndex", "direction", "contractAddress", "amountMicro", "confirmations", "processedRecordId", "createdAt"]
+    },
+    "WalletLedgerEntry": {
+      "title": "WalletLedgerEntry",
+      "description": "Immutable double-entry style balance movement log.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "entryType": { "type": "string", "enum": ["DEPOSIT_CREDIT", "WITHDRAWAL_RESERVE", "WITHDRAWAL_SETTLE", "WITHDRAWAL_REFUND", "P2P_ESCROW_LOCK", "P2P_ESCROW_RELEASE", "P2P_ESCROW_REFUND", "ADMIN_ADJUSTMENT"] },
+        "network": { "type": "string", "enum": ["TRON_TRC20", "ETHEREUM_ERC20", "POLYGON", "BSC"] },
+        "asset": { "type": "string", "enum": ["USDT"] },
+        "deltaAvailableMicro": { "type": "integer" },
+        "deltaReservedMicro": { "type": "integer" },
+        "balanceBeforeMicro": { "type": "integer" },
+        "balanceAfterMicro": { "type": "integer" },
+        "referenceId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "note": { "type": "string", "maxLength": 300 },
+        "isSandbox": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "entryType", "network", "asset", "deltaAvailableMicro", "deltaReservedMicro", "balanceBeforeMicro", "balanceAfterMicro", "referenceId", "note", "isSandbox", "createdAt"]
+    },
+    "WalletReservation": {
+      "title": "WalletReservation",
+      "description": "Explicit hold record distinguishing P2P escrow from pending external withdrawals.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "purpose": { "type": "string", "enum": ["P2P_ESCROW", "WITHDRAWAL_PENDING"] },
+        "referenceId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "amountMicro": { "type": "integer" },
+        "status": { "type": "string", "enum": ["ACTIVE", "RELEASED", "REFUNDED"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "purpose", "referenceId", "amountMicro", "status", "createdAt", "updatedAt"]
+    },
+    "WalletSecuritySettings": {
+      "title": "WalletSecuritySettings",
+      "description": "Treasury & security policy parameters for USDT withdrawals and deposits.",
+      "type": "object",
+      "properties": {
+        "newAddressCooldownHours": { "type": "integer" },
+        "manualReviewThresholdUsdtMicro": { "type": "integer" },
+        "dailyWithdrawalLimitUsdtMicro": { "type": "integer" },
+        "require2faForWithdrawals": { "type": "boolean" },
+        "sandboxFaucetEnabled": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["newAddressCooldownHours", "manualReviewThresholdUsdtMicro", "dailyWithdrawalLimitUsdtMicro", "require2faForWithdrawals", "sandboxFaucetEnabled", "updatedAt"]
+    },
+    "WalletAuditLog": {
+      "title": "WalletAuditLog",
+      "description": "Immutable audit log for trading blocks, deposits, withdrawals, and treasury actions.",
+      "type": "object",
+      "properties": {
+        "actorUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "subjectUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "action": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "targetType": { "type": "string", "enum": ["DEPOSIT", "WITHDRAWAL", "WHITELIST", "NETWORK", "SECURITY_POLICY", "TRADING_ACCESS", "COIN_GOVERNANCE"] },
+        "targetId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "summary": { "type": "string", "minLength": 2, "maxLength": 400 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["actorUid", "subjectUid", "action", "targetType", "targetId", "summary", "createdAt"]
+    },
+    "SupportedCoin": {
+      "title": "SupportedCoin",
+      "description": "Centralized multi-coin registry with networks, contracts, limits, fees, and Admin approval flags.",
+      "type": "object",
+      "properties": {
+        "symbol": { "type": "string", "minLength": 2, "maxLength": 12 },
+        "name": { "type": "string", "minLength": 2, "maxLength": 64 },
+        "coingeckoId": { "type": "string", "minLength": 2, "maxLength": 64 },
+        "iconKey": { "type": "string", "minLength": 2, "maxLength": 32 },
+        "accentHex": { "type": "string", "minLength": 4, "maxLength": 16 },
+        "description": { "type": "string", "maxLength": 500 },
+        "decimals": { "type": "integer" },
+        "supportedNetworks": { "type": "array", "description": "Approved network IDs" },
+        "networkContracts": { "type": "array", "description": "Per-network token contract or NATIVE mapping" },
+        "minTradeQuantityE8": { "type": "integer" },
+        "maxTradeQuantityE8": { "type": "integer" },
+        "minOrderInrPaise": { "type": "integer" },
+        "maxOrderInrPaise": { "type": "integer" },
+        "tradingFeeBps": { "type": "integer" },
+        "confirmationsRequired": { "type": "integer" },
+        "depositEnabled": { "type": "boolean" },
+        "withdrawalEnabled": { "type": "boolean" },
+        "tradingEnabled": { "type": "boolean" },
+        "custodyApproved": { "type": "boolean" },
+        "isFeatured": { "type": "boolean" },
+        "sortOrder": { "type": "integer" },
+        "updatedByUid": { "type": "string", "maxLength": 128 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["symbol", "name", "coingeckoId", "iconKey", "accentHex", "description", "decimals", "supportedNetworks", "networkContracts", "minTradeQuantityE8", "maxTradeQuantityE8", "minOrderInrPaise", "maxOrderInrPaise", "tradingFeeBps", "confirmationsRequired", "depositEnabled", "withdrawalEnabled", "tradingEnabled", "custodyApproved", "isFeatured", "sortOrder", "updatedAt"]
+    },
+    "CoinTradingSettings": {
+      "title": "CoinTradingSettings",
+      "description": "Per-coin P2P trading, deposit, withdrawal, and custody approval settings.",
+      "type": "object",
+      "properties": {
+        "symbol": { "type": "string", "minLength": 2, "maxLength": 12 },
+        "tradingEnabled": { "type": "boolean" },
+        "depositEnabled": { "type": "boolean" },
+        "withdrawalEnabled": { "type": "boolean" },
+        "custodyApproved": { "type": "boolean" },
+        "minTradeQuantityE8": { "type": "integer" },
+        "maxTradeQuantityE8": { "type": "integer" },
+        "tradingFeeBps": { "type": "integer" },
+        "confirmationsRequired": { "type": "integer" },
+        "updatedByUid": { "type": "string", "maxLength": 128 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["symbol", "tradingEnabled", "depositEnabled", "withdrawalEnabled", "custodyApproved", "minTradeQuantityE8", "maxTradeQuantityE8", "tradingFeeBps", "confirmationsRequired", "updatedAt"]
+    },
+    "CoinMarketData": {
+      "title": "CoinMarketData",
+      "description": "Persisted snapshot of coin market quotes in INR & USD.",
+      "type": "object",
+      "properties": {
+        "symbol": { "type": "string" },
+        "coingeckoId": { "type": "string" },
+        "inrPrice": { "type": "number" },
+        "usdPrice": { "type": "number" },
+        "change24hPct": { "type": "number" },
+        "volume24hInr": { "type": "number" },
+        "marketCapInr": { "type": "number" },
+        "high24hInr": { "type": "number" },
+        "low24hInr": { "type": "number" },
+        "circulatingSupply": { "type": "number" },
+        "freshnessStatus": { "type": "string", "enum": ["LIVE", "DELAYED", "STALE", "UNAVAILABLE"] },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["symbol", "coingeckoId", "inrPrice", "freshnessStatus", "updatedAt"]
+    },
+    "CoinPriceHistory": {
+      "title": "CoinPriceHistory",
+      "description": "Metadata summary of cached historical candle fetches.",
+      "type": "object",
+      "properties": {
+        "symbol": { "type": "string" },
+        "interval": { "type": "string" },
+        "currency": { "type": "string" },
+        "barCount": { "type": "integer" },
+        "lastCloseInr": { "type": "number" },
+        "sourceGranularity": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["symbol", "interval", "currency", "barCount", "sourceGranularity", "updatedAt"]
+    },
+    "CoinMarketCache": {
+      "title": "CoinMarketCache",
+      "description": "Market feed freshness metadata entry.",
+      "type": "object",
+      "properties": {
+        "freshnessStatus": { "type": "string", "enum": ["LIVE", "DELAYED", "STALE", "UNAVAILABLE"] },
+        "coinCount": { "type": "integer" },
+        "fetchedAtIso": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["freshnessStatus", "coinCount", "fetchedAtIso", "updatedAt"]
+    },
+    "CoinWatchlist": {
+      "title": "CoinWatchlist",
+      "description": "User favorite cryptocurrency watchlist entry.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "symbol": { "type": "string", "minLength": 2, "maxLength": 12 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "symbol", "createdAt"]
+    },
+    "CoinPriceAlert": {
+      "title": "CoinPriceAlert",
+      "description": "Multi-coin INR target price alert created by a user.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "symbol": { "type": "string", "minLength": 2, "maxLength": 12 },
+        "targetInrPaise": { "type": "integer" },
+        "condition": { "type": "string", "enum": ["ABOVE", "BELOW"] },
+        "isActive": { "type": "boolean" },
+        "triggered": { "type": "boolean" },
+        "lastTriggeredAtMs": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "symbol", "targetInrPaise", "condition", "isActive", "triggered", "createdAt"]
+    },
+    "MultiCoinOrder": {
+      "title": "MultiCoinOrder",
+      "description": "Normalized multi-cryptocurrency P2P order ledger mirror.",
+      "type": "object",
+      "properties": {
+        "orderId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "orderCode": { "type": "string", "minLength": 6, "maxLength": 32 },
+        "symbol": { "type": "string", "minLength": 2, "maxLength": 12 },
+        "side": { "type": "string", "enum": ["BUY", "SELL"] },
+        "buyerUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "sellerUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "quantityE8": { "type": "integer" },
+        "rateInrPaise": { "type": "integer" },
+        "inrPaise": { "type": "integer" },
+        "feeE8": { "type": "integer" },
+        "network": { "type": "string", "enum": ["TRON_TRC20", "ETHEREUM_ERC20", "POLYGON", "BSC", "BITCOIN", "SOLANA", "XRP_LEDGER", "DOGECOIN"] },
+        "status": { "type": "string", "enum": ["CREATED", "AWAITING_ACCEPTANCE", "ACCEPTED", "ESCROW_RESERVED", "PAYMENT_PENDING", "PAYMENT_SUBMITTED", "PAYMENT_VERIFIED", "SETTLING", "COMPLETED", "CANCELLED", "EXPIRED", "DISPUTED", "REFUNDED"] },
+        "isSandbox": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["orderId", "orderCode", "symbol", "side", "buyerUid", "sellerUid", "quantityE8", "rateInrPaise", "inrPaise", "feeE8", "network", "status", "isSandbox", "createdAt", "updatedAt"]
+    },
+    "PriceLock": {
+      "title": "PriceLock",
+      "description": "Signed temporary P2P exchange rate lock with expiration tracking.",
+      "type": "object",
+      "properties": {
+        "lockId": { "type": "string" },
+        "uid": { "type": "string" },
+        "offerId": { "type": "string" },
+        "asset": { "type": "string" },
+        "side": { "type": "string", "enum": ["BUY", "SELL"] },
+        "rateInrPaise": { "type": "integer" },
+        "ttlSeconds": { "type": "integer" },
+        "expiresAtMs": { "type": "integer" },
+        "signature": { "type": "string" },
+        "status": { "type": "string", "enum": ["LOCKED", "CONSUMED", "EXPIRED"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["lockId", "uid", "offerId", "asset", "side", "rateInrPaise", "ttlSeconds", "expiresAtMs", "signature", "status", "createdAt", "updatedAt"]
+    },
+    "SupportMessage": {
+      "title": "SupportMessage",
+      "description": "Live chat message inside a customer support ticket.",
+      "type": "object",
+      "properties": {
+        "ticketId": { "type": "string" },
+        "senderUid": { "type": "string" },
+        "senderName": { "type": "string" },
+        "senderRole": { "type": "string", "enum": ["USER", "SUPPORT", "ADMIN"] },
+        "body": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ticketId", "senderUid", "senderName", "senderRole", "body", "createdAt"]
+    },
+    "MerchantApiKey": {
+      "title": "MerchantApiKey",
+      "description": "SHA-256 hashed merchant API key metadata (never plaintext secrets).",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "keyHash": { "type": "string" },
+        "keyPrefix": { "type": "string" },
+        "label": { "type": "string" },
+        "scopes": { "type": "array" },
+        "rateLimitPerMin": { "type": "integer" },
+        "revoked": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "keyHash", "keyPrefix", "label", "scopes", "rateLimitPerMin", "revoked", "createdAt", "updatedAt"]
+    },
+    "MerchantWebhook": {
+      "title": "MerchantWebhook",
+      "description": "Merchant HTTPS webhook subscription with masked signing secret.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "url": { "type": "string" },
+        "events": { "type": "array" },
+        "secretMasked": { "type": "string" },
+        "isActive": { "type": "boolean" },
+        "lastTestStatus": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "url", "events", "secretMasked", "isActive", "createdAt", "updatedAt"]
+    },
+    "MaintenanceWindow": {
+      "title": "MaintenanceWindow",
+      "description": "Admin-published scheduled maintenance window displayed on Platform Status.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "affectedServices": { "type": "array" },
+        "status": { "type": "string", "enum": ["SCHEDULED", "IN_PROGRESS", "COMPLETED"] },
+        "scheduledStartIso": { "type": "string" },
+        "scheduledEndIso": { "type": "string" },
+        "createdByUid": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "description", "affectedServices", "status", "scheduledStartIso", "scheduledEndIso", "createdByUid", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserAccount" },
+      "description": "Public-safe user summary and trading stats."
+    },
+    "/users/{userId}/private/{docId}": {
+      "schema": { "$ref": "#/entities/UserPrivateProfile" },
+      "description": "Isolated user PII profile."
+    },
+    "/p2p_offers/{offerId}": {
+      "schema": { "$ref": "#/entities/P2POffer" },
+      "description": "Active P2P USDT/INR buy and sell offers."
+    },
+    "/p2p_orders/{orderId}": {
+      "schema": { "$ref": "#/entities/P2POrder" },
+      "description": "P2P exchange orders."
+    },
+    "/p2p_orders/{orderId}/events/{eventId}": {
+      "schema": { "$ref": "#/entities/OrderEvent" },
+      "description": "Order lifecycle audit events."
+    },
+    "/p2p_orders/{orderId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/OrderMessage" },
+      "description": "Real-time counterparty chat messages inside an order."
+    },
+    "/kyc_submissions/{submissionId}": {
+      "schema": { "$ref": "#/entities/KycSubmission" },
+      "description": "User Video KYC and identity dossiers."
+    },
+    "/payment_accounts/{accountId}": {
+      "schema": { "$ref": "#/entities/PaymentAccount" },
+      "description": "Verified INR payment accounts."
+    },
+    "/payment_records/{recordId}": {
+      "schema": { "$ref": "#/entities/PaymentRecord" },
+      "description": "INR payment reconciliation and UTR uniqueness records."
+    },
+    "/wallets/{userId}": {
+      "schema": { "$ref": "#/entities/WalletLedger" },
+      "description": "User USDT wallet ledger."
+    },
+    "/wallet_transactions/{txId}": {
+      "schema": { "$ref": "#/entities/WalletTransaction" },
+      "description": "Deposit, withdrawal, and escrow ledger transactions."
+    },
+    "/merchants/{merchantId}": {
+      "schema": { "$ref": "#/entities/MerchantProfile" },
+      "description": "Merchant and liquidity provider profiles."
+    },
+    "/disputes/{disputeId}": {
+      "schema": { "$ref": "#/entities/DisputeCase" },
+      "description": "Order dispute cases."
+    },
+    "/risk_assessments/{assessmentId}": {
+      "schema": { "$ref": "#/entities/RiskAssessment" },
+      "description": "AI-assisted transaction risk evaluations."
+    },
+    "/support_tickets/{ticketId}": {
+      "schema": { "$ref": "#/entities/SupportTicket" },
+      "description": "User support and contact tickets."
+    },
+    "/notifications/{notificationId}": {
+      "schema": { "$ref": "#/entities/UserNotification" },
+      "description": "In-app notifications."
+    },
+    "/security_sessions/{sessionId}": {
+      "schema": { "$ref": "#/entities/SecuritySession" },
+      "description": "Login device history and suspicious session tracking."
+    },
+    "/withdrawal_whitelist/{entryId}": {
+      "schema": { "$ref": "#/entities/WithdrawalWhitelist" },
+      "description": "User withdrawal address whitelist."
+    },
+    "/price_alerts/{alertId}": {
+      "schema": { "$ref": "#/entities/PriceAlert" },
+      "description": "User USDT/INR target price alerts."
+    },
+    "/compliance_cases/{caseId}": {
+      "schema": { "$ref": "#/entities/ComplianceCase" },
+      "description": "Compliance investigation cases."
+    },
+    "/platform_settings/{settingId}": {
+      "schema": { "$ref": "#/entities/PlatformSettings" },
+      "description": "Admin-configured fees, limits, and sandbox settings."
+    },
+    "/audit_logs/{logId}": {
+      "schema": { "$ref": "#/entities/AuditLog" },
+      "description": "System compliance and security audit log."
+    },
+    "/wallet_addresses/{addressId}": {
+      "schema": { "$ref": "#/entities/WalletAddress" },
+      "description": "Per-user per-network deposit addresses."
+    },
+    "/supported_networks/{networkId}": {
+      "schema": { "$ref": "#/entities/SupportedNetwork" },
+      "description": "Supported blockchain networks and withdrawal limits."
+    },
+    "/supported_tokens/{tokenId}": {
+      "schema": { "$ref": "#/entities/SupportedToken" },
+      "description": "Supported token contracts registry."
+    },
+    "/deposit_transactions/{depositId}": {
+      "schema": { "$ref": "#/entities/DepositTransaction" },
+      "description": "USDT deposit verification and credit records."
+    },
+    "/withdrawal_transactions/{withdrawalId}": {
+      "schema": { "$ref": "#/entities/WithdrawalTransaction" },
+      "description": "USDT withdrawal request and lifecycle tracking."
+    },
+    "/blockchain_events/{eventId}": {
+      "schema": { "$ref": "#/entities/BlockchainEvent" },
+      "description": "Idempotent blockchain event deduplication log."
+    },
+    "/wallet_ledger/{entryId}": {
+      "schema": { "$ref": "#/entities/WalletLedgerEntry" },
+      "description": "Immutable wallet balance movement journal."
+    },
+    "/wallet_reservations/{reservationId}": {
+      "schema": { "$ref": "#/entities/WalletReservation" },
+      "description": "Active P2P escrow vs withdrawal balance holds."
+    },
+    "/wallet_security_settings/{settingId}": {
+      "schema": { "$ref": "#/entities/WalletSecuritySettings" },
+      "description": "Global withdrawal cooldown and review thresholds."
+    },
+    "/wallet_audit_logs/{logId}": {
+      "schema": { "$ref": "#/entities/WalletAuditLog" },
+      "description": "Immutable wallet & trading restriction audit log."
+    },
+    "/supported_coins/{coinId}": {
+      "schema": { "$ref": "#/entities/SupportedCoin" },
+      "description": "Centralized coin registry & Admin trading/custody approval controls."
+    },
+    "/coin_trading_settings/{coinId}": {
+      "schema": { "$ref": "#/entities/CoinTradingSettings" },
+      "description": "Per-coin P2P fee, min/max quantity, confirmation, and trading enablement settings."
+    },
+    "/coin_market_data/{coinId}": {
+      "schema": { "$ref": "#/entities/CoinMarketData" },
+      "description": "Market quote snapshot cache."
+    },
+    "/coin_price_history/{historyId}": {
+      "schema": { "$ref": "#/entities/CoinPriceHistory" },
+      "description": "Historical price series metadata."
+    },
+    "/coin_market_cache/{cacheId}": {
+      "schema": { "$ref": "#/entities/CoinMarketCache" },
+      "description": "Market feed freshness metadata."
+    },
+    "/coin_watchlists/{watchId}": {
+      "schema": { "$ref": "#/entities/CoinWatchlist" },
+      "description": "Per-user favorite cryptocurrency watchlist."
+    },
+    "/coin_price_alerts/{alertId}": {
+      "schema": { "$ref": "#/entities/CoinPriceAlert" },
+      "description": "Per-user INR target price alerts across supported cryptocurrencies."
+    },
+    "/multi_coin_orders/{orderId}": {
+      "schema": { "$ref": "#/entities/MultiCoinOrder" },
+      "description": "Multi-cryptocurrency P2P order ledger."
+    },
+    "/price_locks/{lockId}": {
+      "schema": { "$ref": "#/entities/PriceLock" },
+      "description": "Temporary rate lock records."
+    },
+    "/support_tickets/{ticketId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/SupportMessage" },
+      "description": "Live customer support ticket chat messages."
+    },
+    "/merchant_api_keys/{keyId}": {
+      "schema": { "$ref": "#/entities/MerchantApiKey" },
+      "description": "Merchant developer API key hashes and rate limits."
+    },
+    "/merchant_webhooks/{webhookId}": {
+      "schema": { "$ref": "#/entities/MerchantWebhook" },
+      "description": "Merchant HTTPS webhook endpoints."
+    },
+    "/system_maintenance/{windowId}": {
+      "schema": { "$ref": "#/entities/MaintenanceWindow" },
+      "description": "Platform Status scheduled maintenance notices."
+    }
+  }
+}

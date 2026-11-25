@@ -1,0 +1,1567 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global safety net: default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Global Hardened Primitives ---
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function isAdmin() {
+      return isEmailVerified() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        request.auth.token.email == 'dahikardilesh@gmail.com'
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isNonNegInt(v) {
+      return v is int && v >= 0;
+    }
+
+    function isPosInt(v) {
+      return v is int && v > 0;
+    }
+
+    function isKycVerifiedActive() {
+      return isEmailVerified()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.accountStatus == 'ACTIVE'
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.kycStatus in ['APPROVED', 'VERIFIED']
+        && (!('withdrawalLocked' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data)
+            || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.withdrawalLocked == false)
+        && (!('kycExpiresAtMs' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data)
+            || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.kycExpiresAtMs == 0
+            || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.kycExpiresAtMs > request.time.toMillis());
+    }
+
+    // --- Validation Blueprints ---
+    function isValidUserAccount(d) {
+      return d.keys().hasAll(['uid', 'username', 'displayName', 'role', 'kycStatus', 'accountStatus', 'completedTrades', 'completionRateBps', 'ratingAvgBps', 'createdAt', 'updatedAt'])
+        && d.keys().hasOnly(['uid', 'username', 'displayName', 'role', 'kycStatus', 'accountStatus', 'walletAddress', 'isDemo', 'withdrawalLocked', 'restrictedReason', 'kycExpiresAtMs', 'completedTrades', 'completionRateBps', 'ratingAvgBps', 'createdAt', 'updatedAt'])
+        && isValidId(d.uid)
+        && d.username is string && d.username.size() >= 3 && d.username.size() <= 40 && d.username.matches('^[a-zA-Z0-9_\\-]+$')
+        && d.displayName is string && d.displayName.size() >= 1 && d.displayName.size() <= 80
+        && d.role in ['BUYER', 'SELLER', 'MERCHANT', 'LIQUIDITY_PROVIDER', 'TREASURY_ADMIN', 'SUPPORT_AGENT', 'COMPLIANCE_OFFICER', 'ADMIN', 'SUPER_ADMIN']
+        && d.kycStatus in ['NOT_STARTED', 'PENDING', 'UNDER_REVIEW', 'APPROVED', 'VERIFIED', 'REJECTED', 'ADDITIONAL_INFO_REQUIRED', 'SUSPENDED', 'EXPIRED']
+        && d.accountStatus in ['ACTIVE', 'SUSPENDED', 'DELETION_REQUESTED']
+        && (!('walletAddress' in d) || (d.walletAddress is string && d.walletAddress.size() <= 128))
+        && (!('isDemo' in d) || d.isDemo is bool)
+        && (!('withdrawalLocked' in d) || d.withdrawalLocked is bool)
+        && (!('restrictedReason' in d) || (d.restrictedReason is string && d.restrictedReason.size() <= 300))
+        && (!('kycExpiresAtMs' in d) || isNonNegInt(d.kycExpiresAtMs))
+        && isNonNegInt(d.completedTrades)
+        && isNonNegInt(d.completionRateBps) && d.completionRateBps <= 10000
+        && isNonNegInt(d.ratingAvgBps) && d.ratingAvgBps <= 500
+        && d.createdAt is timestamp
+        && d.updatedAt is timestamp;
+    }
+
+    function isValidPrivateProfile(d) {
+      return d.keys().hasAll(['uid', 'fullLegalName', 'email', 'country', 'twoFactorEnabled', 'notifyEmail', 'notifyInApp', 'notifySecurityAlerts', 'updatedAt'])
+        && d.keys().hasOnly(['uid', 'fullLegalName', 'email', 'mobile', 'country', 'residentialAddress', 'dateOfBirth', 'twoFactorEnabled', 'twoFactorMethod', 'totpSealedSecret', 'whitelistOnlyWithdrawals', 'notifyEmail', 'notifyInApp', 'notifySecurityAlerts', 'updatedAt'])
+        && isValidId(d.uid)
+        && d.fullLegalName is string && d.fullLegalName.size() >= 2 && d.fullLegalName.size() <= 120
+        && d.email is string && d.email.size() >= 3 && d.email.size() <= 160
+        && (!('mobile' in d) || (d.mobile is string && d.mobile.size() <= 24))
+        && d.country is string && d.country.size() >= 2 && d.country.size() <= 64
+        && (!('residentialAddress' in d) || (d.residentialAddress is string && d.residentialAddress.size() <= 300))
+        && (!('dateOfBirth' in d) || (d.dateOfBirth is string && d.dateOfBirth.size() <= 20))
+        && d.twoFactorEnabled is bool
+        && (!('twoFactorMethod' in d) || d.twoFactorMethod in ['NONE', 'TOTP'])
+        && (!('totpSealedSecret' in d) || (d.totpSealedSecret is string && d.totpSealedSecret.size() <= 512))
+        && (!('whitelistOnlyWithdrawals' in d) || d.whitelistOnlyWithdrawals is bool)
+        && d.notifyEmail is bool
+        && d.notifyInApp is bool
+        && d.notifySecurityAlerts is bool
+        && d.updatedAt is timestamp;
+    }
+
+    function isValidOffer(d) {
+      return d.keys().hasAll(['merchantUid', 'merchantUsername', 'verificationLevel', 'side', 'asset', 'fiatCurrency', 'rateInrPaise', 'availableUsdtMicro', 'minInrPaise', 'maxInrPaise', 'paymentMethods', 'network', 'avgCompletionMins', 'completedTrades', 'completionRateBps', 'isActive', 'isSandbox', 'createdAt', 'updatedAt'])
+        && d.keys().hasOnly(['merchantUid', 'merchantUsername', 'verificationLevel', 'side', 'asset', 'fiatCurrency', 'rateInrPaise', 'availableUsdtMicro', 'availableAssetE8', 'minInrPaise', 'maxInrPaise', 'paymentMethods', 'network', 'avgCompletionMins', 'completedTrades', 'completionRateBps', 'merchantRatingBps', 'merchantVolumeUsdtMicro', 'termsNote', 'isActive', 'isSandbox', 'isDemo', 'demoLabel', 'createdAt', 'updatedAt'])
+        && isValidId(d.merchantUid)
+        && d.merchantUsername is string && d.merchantUsername.size() >= 3 && d.merchantUsername.size() <= 40
+        && d.verificationLevel in ['BASIC', 'VERIFIED', 'PREMIUM']
+        && d.side in ['SELL_USDT', 'BUY_USDT', 'SELL', 'BUY']
+        && d.asset is string && d.asset.size() >= 2 && d.asset.size() <= 12
+        && d.fiatCurrency == 'INR'
+        && isPosInt(d.rateInrPaise)
+        && isNonNegInt(d.availableUsdtMicro)
+        && (!('availableAssetE8' in d) || isNonNegInt(d.availableAssetE8))
+        && isPosInt(d.minInrPaise)
+        && isPosInt(d.maxInrPaise) && d.maxInrPaise >= d.minInrPaise
+        && d.paymentMethods is list && d.paymentMethods.size() >= 1 && d.paymentMethods.size() <= 5
+        && d.paymentMethods[0] is string && d.paymentMethods.hasOnly(['UPI', 'IMPS', 'NEFT', 'RTGS', 'BANK_TRANSFER'])
+        && d.network in ['TRON_TRC20', 'ETHEREUM_ERC20', 'POLYGON', 'BSC', 'BITCOIN', 'SOLANA', 'XRP_LEDGER', 'DOGECOIN']
+        && isPosInt(d.avgCompletionMins) && d.avgCompletionMins <= 240
+        && isNonNegInt(d.completedTrades)
+        && isNonNegInt(d.completionRateBps) && d.completionRateBps <= 10000
+        && (!('merchantRatingBps' in d) || (isNonNegInt(d.merchantRatingBps) && d.merchantRatingBps <= 500))
+        && (!('merchantVolumeUsdtMicro' in d) || isNonNegInt(d.merchantVolumeUsdtMicro))
+        && (!('termsNote' in d) || (d.termsNote is string && d.termsNote.size() <= 400))
+        && d.isActive is bool
+        && d.isSandbox is bool
+        && (!('isDemo' in d) || d.isDemo is bool)
+        && (!('demoLabel' in d) || (d.demoLabel is string && d.demoLabel.size() <= 32))
+        && d.createdAt is timestamp
+        && d.updatedAt is timestamp;
+    }
+
+    function isValidOrder(d) {
+      return d.keys().hasAll(['orderCode', 'offerId', 'side', 'buyerUid', 'sellerUid', 'buyerUsername', 'sellerUsername', 'usdtMicro', 'inrPaise', 'rateInrPaise', 'feeUsdtMicro', 'tdsInrPaise', 'paymentMethod', 'network', 'escrowStatus', 'paymentMode', 'riskScore', 'riskLevel', 'status', 'isSandbox', 'expiresAtMs', 'createdAt', 'updatedAt'])
+        && d.keys().hasOnly(['orderCode', 'offerId', 'side', 'asset', 'buyerUid', 'sellerUid', 'buyerUsername', 'sellerUsername', 'usdtMicro', 'quantityE8', 'inrPaise', 'rateInrPaise', 'feeUsdtMicro', 'feeE8', 'tdsInrPaise', 'paymentMethod', 'network', 'buyerWalletAddress', 'sellerWalletAddress', 'paymentAccountSnapshot', 'escrowStatus', 'escrowTxHash', 'paymentRef', 'paymentMode', 'riskScore', 'riskLevel', 'status', 'buyerRating', 'releaseConfirmed2FA', 'completedAtMs', 'isSandbox', 'expiresAtMs', 'createdAt', 'updatedAt'])
+        && d.orderCode is string && d.orderCode.size() >= 6 && d.orderCode.size() <= 32
+        && isValidId(d.offerId)
+        && d.side in ['BUY_USDT', 'SELL_USDT', 'BUY', 'SELL']
+        && (!('asset' in d) || (d.asset is string && d.asset.size() >= 2 && d.asset.size() <= 12))
+        && isValidId(d.buyerUid) && isValidId(d.sellerUid)
+        && d.buyerUsername is string && d.buyerUsername.size() >= 2 && d.buyerUsername.size() <= 40
+        && d.sellerUsername is string && d.sellerUsername.size() >= 2 && d.sellerUsername.size() <= 40
+        && isPosInt(d.usdtMicro)
+        && (!('quantityE8' in d) || isPosInt(d.quantityE8))
+        && isPosInt(d.inrPaise)
+        && isPosInt(d.rateInrPaise)
+        && isNonNegInt(d.feeUsdtMicro)
+        && (!('feeE8' in d) || isNonNegInt(d.feeE8))
+        && isNonNegInt(d.tdsInrPaise)
+        && d.paymentMethod in ['UPI', 'IMPS', 'NEFT', 'RTGS', 'BANK_TRANSFER']
+        && d.network in ['TRON_TRC20', 'ETHEREUM_ERC20', 'POLYGON', 'BSC', 'BITCOIN', 'SOLANA', 'XRP_LEDGER', 'DOGECOIN']
+        && (!('buyerWalletAddress' in d) || (d.buyerWalletAddress is string && d.buyerWalletAddress.size() <= 128))
+        && (!('sellerWalletAddress' in d) || (d.sellerWalletAddress is string && d.sellerWalletAddress.size() <= 128))
+        && (!('paymentAccountSnapshot' in d) || (d.paymentAccountSnapshot is string && d.paymentAccountSnapshot.size() <= 240))
+        && d.escrowStatus in ['NONE', 'RESERVED', 'RELEASED', 'REFUNDED']
+        && (!('escrowTxHash' in d) || (d.escrowTxHash is string && d.escrowTxHash.size() <= 128))
+        && (!('paymentRef' in d) || (d.paymentRef is string && d.paymentRef.size() <= 128))
+        && d.paymentMode in ['SANDBOX', 'PROVIDER_API']
+        && isNonNegInt(d.riskScore) && d.riskScore <= 100
+        && d.riskLevel in ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']
+        && d.status in ['CREATED', 'AWAITING_ACCEPTANCE', 'ACCEPTED', 'ESCROW_RESERVED', 'PAYMENT_PENDING', 'PAYMENT_SUBMITTED', 'PAYMENT_VERIFIED', 'SETTLING', 'COMPLETED', 'CANCELLED', 'EXPIRED', 'DISPUTED', 'REFUNDED']
+        && (!('buyerRating' in d) || (d.buyerRating is int && d.buyerRating >= 1 && d.buyerRating <= 5))
+        && (!('releaseConfirmed2FA' in d) || d.releaseConfirmed2FA is bool)
+        && (!('completedAtMs' in d) || isNonNegInt(d.completedAtMs))
+        && d.isSandbox is bool
+        && isPosInt(d.expiresAtMs)
+        && d.createdAt is timestamp
+        && d.updatedAt is timestamp;
+    }
+
+    function isValidOrderEvent(d) {
+      return d.keys().hasAll(['orderId', 'actorUid', 'action', 'fromStatus', 'toStatus', 'note', 'createdAt'])
+        && d.keys().hasOnly(['orderId', 'actorUid', 'action', 'fromStatus', 'toStatus', 'note', 'createdAt'])
+        && isValidId(d.orderId)
+        && isValidId(d.actorUid)
+        && d.action is string && d.action.size() >= 2 && d.action.size() <= 64
+        && d.fromStatus is string && d.fromStatus.size() <= 32
+        && d.toStatus is string && d.toStatus.size() <= 32
+        && d.note is string && d.note.size() <= 400
+        && d.createdAt is timestamp;
+    }
+
+    function isValidOrderMessage(d) {
+      return d.keys().hasAll(['orderId', 'senderUid', 'senderUsername', 'senderRole', 'body', 'createdAt'])
+        && d.keys().hasOnly(['orderId', 'senderUid', 'senderUsername', 'senderRole', 'body', 'createdAt'])
+        && isValidId(d.orderId)
+        && isValidId(d.senderUid)
+        && d.senderUsername is string && d.senderUsername.size() >= 2 && d.senderUsername.size() <= 40
+        && d.senderRole in ['BUYER', 'SELLER', 'ADMIN']
+        && d.body is string && d.body.size() >= 1 && d.body.size() <= 500
+        && d.createdAt is timestamp;
+    }
+
+    function isValidKyc(d) {
+      return d.keys().hasAll(['uid', 'fullLegalName', 'dateOfBirth', 'country', 'residentialAddress', 'idType', 'maskedIdNumber', 'livenessMethod', 'bankAccountLast4', 'bankIfsc', 'accountHolderName', 'pepDeclared', 'sanctionsDeclaredClear', 'sourceOfFunds', 'status', 'createdAt', 'updatedAt'])
+        && d.keys().hasOnly(['uid', 'fullLegalName', 'dateOfBirth', 'country', 'residentialAddress', 'idType', 'maskedIdNumber', 'panMasked', 'documentExpiry', 'livenessMethod', 'videoStatus', 'videoChallengePrompt', 'livenessScore', 'faceMatchScore', 'providerMode', 'kycExpiresAtMs', 'verificationHistory', 'isDemoRecord', 'bankAccountLast4', 'bankIfsc', 'accountHolderName', 'pepDeclared', 'sanctionsDeclaredClear', 'sourceOfFunds', 'status', 'reviewerNote', 'reviewedByUid', 'createdAt', 'updatedAt'])
+        && isValidId(d.uid)
+        && d.fullLegalName is string && d.fullLegalName.size() >= 2 && d.fullLegalName.size() <= 120
+        && d.dateOfBirth is string && d.dateOfBirth.size() >= 8 && d.dateOfBirth.size() <= 20
+        && d.country is string && d.country.size() >= 2 && d.country.size() <= 64
+        && d.residentialAddress is string && d.residentialAddress.size() >= 5 && d.residentialAddress.size() <= 300
+        && d.idType in ['PAN', 'PASSPORT', 'AADHAAR_MASKED', 'DRIVING_LICENSE']
+        && d.maskedIdNumber is string && d.maskedIdNumber.size() >= 4 && d.maskedIdNumber.size() <= 32
+        && (!('panMasked' in d) || (d.panMasked is string && d.panMasked.size() <= 16))
+        && (!('documentExpiry' in d) || (d.documentExpiry is string && d.documentExpiry.size() <= 20))
+        && d.livenessMethod in ['SANDBOX_LIVENESS', 'PROVIDER_API', 'VIDEO_KYC_ADAPTER']
+        && (!('videoStatus' in d) || d.videoStatus in ['NOT_STARTED', 'CHALLENGE_ISSUED', 'LIVENESS_PASSED', 'MANUAL_REVIEW'])
+        && (!('videoChallengePrompt' in d) || (d.videoChallengePrompt is string && d.videoChallengePrompt.size() <= 240))
+        && (!('livenessScore' in d) || (isNonNegInt(d.livenessScore) && d.livenessScore <= 100))
+        && (!('faceMatchScore' in d) || (isNonNegInt(d.faceMatchScore) && d.faceMatchScore <= 100))
+        && (!('providerMode' in d) || (d.providerMode is string && d.providerMode.size() <= 64))
+        && (!('kycExpiresAtMs' in d) || isNonNegInt(d.kycExpiresAtMs))
+        && (!('verificationHistory' in d) || (d.verificationHistory is list && d.verificationHistory.size() <= 15))
+        && (!('isDemoRecord' in d) || d.isDemoRecord is bool)
+        && d.bankAccountLast4 is string && d.bankAccountLast4.size() == 4
+        && d.bankIfsc is string && d.bankIfsc.size() == 11
+        && d.accountHolderName is string && d.accountHolderName.size() >= 2 && d.accountHolderName.size() <= 120
+        && d.pepDeclared is bool
+        && d.sanctionsDeclaredClear is bool
+        && d.sourceOfFunds is string && d.sourceOfFunds.size() >= 2 && d.sourceOfFunds.size() <= 120
+        && d.status in ['NOT_STARTED', 'PENDING', 'UNDER_REVIEW', 'APPROVED', 'VERIFIED', 'REJECTED', 'ADDITIONAL_INFO_REQUIRED', 'SUSPENDED', 'EXPIRED']
+        && (!('reviewerNote' in d) || (d.reviewerNote is string && d.reviewerNote.size() <= 500))
+        && (!('reviewedByUid' in d) || (d.reviewedByUid is string && d.reviewedByUid.size() <= 128))
+        && d.createdAt is timestamp
+        && d.updatedAt is timestamp;
+    }
+
+    function isValidPaymentAccount(d) {
+      return d.keys().hasAll(['uid', 'methodType', 'accountHolderName', 'verificationStatus', 'isActive', 'createdAt', 'updatedAt'])
+        && d.keys().hasOnly(['uid', 'methodType', 'accountHolderName', 'bankName', 'maskedAccountNumber', 'ifsc', 'upiId', 'verificationStatus', 'isActive', 'createdAt', 'updatedAt'])
+        && isValidId(d.uid)
+        && d.methodType in ['UPI', 'IMPS', 'NEFT', 'RTGS', 'BANK_TRANSFER']
+        && d.accountHolderName is string && d.accountHolderName.size() >= 2 && d.accountHolderName.size() <= 120
+        && (!('bankName' in d) || (d.bankName is string && d.bankName.size() <= 100))
+        && (!('maskedAccountNumber' in d) || (d.maskedAccountNumber is string && d.maskedAccountNumber.size() <= 32))
+        && (!('ifsc' in d) || (d.ifsc is string && d.ifsc.size() <= 11))
+        && (!('upiId' in d) || (d.upiId is string && d.upiId.size() <= 80))
+        && d.verificationStatus in ['PENDING', 'VERIFIED', 'REJECTED']
+        && d.isActive is bool
+        && d.createdAt is timestamp
+        && d.updatedAt is timestamp;
+    }
+
+    function isValidPaymentRecord(d) {
+      return d.keys().hasAll(['uid', 'orderId', 'orderCode', 'method', 'referenceId', 'inrPaise', 'status', 'isSandbox', 'reconciliationNote', 'createdAt', 'updatedAt'])
+        && d.keys().hasOnly(['uid', 'orderId', 'orderCode', 'method', 'referenceId', 'inrPaise', 'status', 'isSandbox', 'reconciliationNote', 'createdAt', 'updatedAt'])
+        && isValidId(d.uid)
+        && isValidId(d.orderId)
+        && d.orderCode is string && d.orderCode.size() >= 4 && d.orderCode.size() <= 32
+        && d.method in ['UPI', 'IMPS', 'NEFT', 'RTGS', 'BANK_TRANSFER']
+        && d.referenceId is string && d.referenceId.size() >= 6 && d.referenceId.size() <= 48
+        && isPosInt(d.inrPaise)
+        && d.status in ['PENDING', 'VERIFIED', 'DUPLICATE_FLAGGED', 'FAILED']
+        && d.isSandbox is bool
+        && d.reconciliationNote is string && d.reconciliationNote.size() <= 300
+        && d.createdAt is timestamp
+        && d.updatedAt is timestamp;
+    }
+
+    function isValidWalletLedger(d) {
+      return d.keys().hasAll(['uid', 'availableUsdtMicro', 'reservedUsdtMicro', 'preferredNetwork', 'updatedAt'])
+        && d.keys().hasOnly(['uid', 'availableUsdtMicro', 'reservedUsdtMicro', 'connectedAddress', 'preferredNetwork', 'updatedAt'])
+        && isValidId(d.uid)
+        && isNonNegInt(d.availableUsdtMicro)
+        && isNonNegInt(d.reservedUsdtMicro)
+        && (!('connectedAddress' in d) || (d.connectedAddress is string && d.connectedAddress.size() <= 128))
+        && d.preferredNetwork in ['TRON_TRC20', 'ETHEREUM_ERC20', 'POLYGON', 'BSC']
+        && d.updatedAt is timestamp;
+    }
+
+    function isValidWalletTx(d) {
+      return d.keys().hasAll(['uid', 'type', 'network', 'asset', 'amountMicro', 'networkFeeMicro', 'isSandbox', 'status', 'createdAt', 'updatedAt'])
+        && d.keys().hasOnly(['uid', 'type', 'network', 'asset', 'amountMicro', 'networkFeeMicro', 'txHash', 'toAddress', 'isSandbox', 'status', 'createdAt', 'updatedAt'])
+        && isValidId(d.uid)
+        && d.type in ['DEPOSIT', 'WITHDRAWAL', 'ESCROW_LOCK', 'ESCROW_RELEASE', 'ESCROW_REFUND']
+        && d.network in ['TRON_TRC20', 'ETHEREUM_ERC20', 'POLYGON', 'BSC']
+        && d.asset == 'USDT'
+        && isPosInt(d.amountMicro)
+        && isNonNegInt(d.networkFeeMicro)
+        && (!('txHash' in d) || (d.txHash is string && d.txHash.size() <= 128))
+        && (!('toAddress' in d) || (d.toAddress is string && d.toAddress.size() <= 128))
+        && d.isSandbox is bool
+        && d.status in ['PENDING', 'CONFIRMING', 'CONFIRMED', 'FAILED']
+        && d.createdAt is timestamp
+        && d.updatedAt is timestamp;
+    }
+
+    function isValidMerchant(d) {
+      return d.keys().hasAll(['uid', 'businessName', 'merchantType', 'verificationLevel', 'declaredLiquidityUsdtMicro', 'commissionBps', 'minOrderInrPaise', 'maxOrderInrPaise', 'isAvailable', 'completedOrders', 'totalVolumeUsdtMicro', 'ratingAvgBps', 'agreementAccepted', 'createdAt', 'updatedAt'])
+        && d.keys().hasOnly(['uid', 'businessName', 'merchantType', 'verificationLevel', 'declaredLiquidityUsdtMicro', 'commissionBps', 'minOrderInrPaise', 'maxOrderInrPaise', 'isAvailable', 'isDemo', 'demoMerchantCode', 'profileBio', 'avgCompletionMins', 'disputedOrders', 'replacedByVerifiedAtMs', 'completedOrders', 'totalVolumeUsdtMicro', 'ratingAvgBps', 'vipTier', 'visibilityMode', 'showVipBadge', 'agreementAccepted', 'createdAt', 'updatedAt'])
+        && isValidId(d.uid)
+        && d.businessName is string && d.businessName.size() >= 2 && d.businessName.size() <= 100
+        && d.merchantType in ['INDIVIDUAL', 'BUSINESS']
+        && d.verificationLevel in ['BASIC', 'VERIFIED', 'PREMIUM', 'SUSPENDED']
+        && isNonNegInt(d.declaredLiquidityUsdtMicro)
+        && isNonNegInt(d.commissionBps) && d.commissionBps <= 1000
+        && isPosInt(d.minOrderInrPaise)
+        && isPosInt(d.maxOrderInrPaise) && d.maxOrderInrPaise >= d.minOrderInrPaise
+        && d.isAvailable is bool
+        && (!('isDemo' in d) || d.isDemo is bool)
+        && (!('demoMerchantCode' in d) || (d.demoMerchantCode is string && d.demoMerchantCode.size() <= 32))
+        && (!('profileBio' in d) || (d.profileBio is string && d.profileBio.size() <= 300))
+        && (!('avgCompletionMins' in d) || isNonNegInt(d.avgCompletionMins))
+        && (!('disputedOrders' in d) || isNonNegInt(d.disputedOrders))
+        && (!('replacedByVerifiedAtMs' in d) || isNonNegInt(d.replacedByVerifiedAtMs))
+        && isNonNegInt(d.completedOrders)
+        && isNonNegInt(d.totalVolumeUsdtMicro)
+        && isNonNegInt(d.ratingAvgBps) && d.ratingAvgBps <= 500
+        && (!('vipTier' in d) || d.vipTier in ['BRONZE', 'SILVER', 'GOLD', 'PLATINUM'])
+        && (!('visibilityMode' in d) || d.visibilityMode in ['PUBLIC', 'HIGH_VOLUME_ONLY', 'HIDDEN'])
+        && (!('showVipBadge' in d) || d.showVipBadge is bool)
+        && d.agreementAccepted is bool
+        && d.createdAt is timestamp
+        && d.updatedAt is timestamp;
+    }
+
+    function isValidDispute(d) {
+      return d.keys().hasAll(['orderId', 'orderCode', 'raisedByUid', 'counterpartyUid', 'category', 'description', 'status', 'createdAt', 'updatedAt'])
+        && d.keys().hasOnly(['orderId', 'orderCode', 'raisedByUid', 'counterpartyUid', 'category', 'description', 'paymentRef', 'evidenceSummary', 'evidenceItems', 'escalatedToCompliance', 'escalatedAtMs', 'status', 'assignedOfficerUid', 'resolutionNote', 'createdAt', 'updatedAt'])
+        && isValidId(d.orderId)
+        && d.orderCode is string && d.orderCode.size() >= 4 && d.orderCode.size() <= 32
+        && isValidId(d.raisedByUid) && isValidId(d.counterpartyUid)
+        && d.category in ['PAYMENT_NOT_RECEIVED', 'PAYMENT_NOT_ACKNOWLEDGED', 'INCORRECT_AMOUNT', 'SELLER_NOT_RELEASING', 'BUYER_NOT_PAYING', 'SUSPICIOUS_TRANSACTION', 'DUPLICATE_PAYMENT', 'OTHER']
+        && d.description is string && d.description.size() >= 10 && d.description.size() <= 1000
+        && (!('paymentRef' in d) || (d.paymentRef is string && d.paymentRef.size() <= 128))
+        && (!('evidenceSummary' in d) || (d.evidenceSummary is string && d.evidenceSummary.size() <= 600))
+        && (!('evidenceItems' in d) || (d.evidenceItems is list && d.evidenceItems.size() <= 6))
+        && (!('escalatedToCompliance' in d) || d.escalatedToCompliance is bool)
+        && (!('escalatedAtMs' in d) || isNonNegInt(d.escalatedAtMs))
+        && d.status in ['OPEN', 'UNDER_REVIEW', 'AWAITING_EVIDENCE', 'ESCALATED', 'RESOLVED', 'REJECTED']
+        && (!('assignedOfficerUid' in d) || (d.assignedOfficerUid is string && d.assignedOfficerUid.size() <= 128))
+        && (!('resolutionNote' in d) || (d.resolutionNote is string && d.resolutionNote.size() <= 600))
+        && d.createdAt is timestamp
+        && d.updatedAt is timestamp;
+    }
+
+    function isValidRiskAssessment(d) {
+      return d.keys().hasAll(['orderId', 'subjectUid', 'score', 'level', 'reasons', 'recommendedAction', 'humanDecision', 'createdAt', 'updatedAt'])
+        && d.keys().hasOnly(['orderId', 'subjectUid', 'score', 'level', 'reasons', 'recommendedAction', 'humanDecision', 'reviewedByUid', 'createdAt', 'updatedAt'])
+        && d.orderId is string && d.orderId.size() >= 1 && d.orderId.size() <= 128
+        && isValidId(d.subjectUid)
+        && isNonNegInt(d.score) && d.score <= 100
+        && d.level in ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']
+        && d.reasons is list && d.reasons.size() >= 1 && d.reasons.size() <= 8
+        && d.reasons[0] is string
+        && d.recommendedAction in ['ALLOW', 'REQUEST_ADDITIONAL_VERIFICATION', 'APPLY_LIMITS', 'HOLD_MANUAL_REVIEW', 'ESCALATE_COMPLIANCE', 'BLOCK']
+        && d.humanDecision in ['PENDING_REVIEW', 'APPROVED', 'HELD', 'ESCALATED', 'BLOCKED']
+        && (!('reviewedByUid' in d) || (d.reviewedByUid is string && d.reviewedByUid.size() <= 128))
+        && d.createdAt is timestamp
+        && d.updatedAt is timestamp;
+    }
+
+    function isValidSupportTicket(d) {
+      return d.keys().hasAll(['name', 'email', 'category', 'subject', 'message', 'status', 'createdAt', 'updatedAt'])
+        && d.keys().hasOnly(['uid', 'name', 'email', 'category', 'subject', 'message', 'status', 'priority', 'assignedAgentUid', 'escalatedToCompliance', 'adminReply', 'createdAt', 'updatedAt'])
+        && (!('uid' in d) || (d.uid is string && d.uid.size() <= 128))
+        && d.name is string && d.name.size() >= 2 && d.name.size() <= 100
+        && d.email is string && d.email.size() >= 3 && d.email.size() <= 160
+        && d.category in ['GENERAL', 'KYC', 'PAYMENT', 'ESCROW', 'DISPUTE', 'MERCHANT', 'COMPLIANCE']
+        && d.subject is string && d.subject.size() >= 3 && d.subject.size() <= 160
+        && d.message is string && d.message.size() >= 10 && d.message.size() <= 2000
+        && d.status in ['OPEN', 'IN_PROGRESS', 'RESOLVED']
+        && (!('priority' in d) || d.priority in ['LOW', 'NORMAL', 'HIGH', 'URGENT'])
+        && (!('assignedAgentUid' in d) || (d.assignedAgentUid is string && d.assignedAgentUid.size() <= 128))
+        && (!('escalatedToCompliance' in d) || d.escalatedToCompliance is bool)
+        && (!('adminReply' in d) || (d.adminReply is string && d.adminReply.size() <= 1000))
+        && d.createdAt is timestamp
+        && d.updatedAt is timestamp;
+    }
+
+    function isValidNotification(d) {
+      return d.keys().hasAll(['uid', 'type', 'title', 'body', 'read', 'createdAt'])
+        && d.keys().hasOnly(['uid', 'type', 'title', 'body', 'read', 'createdAt'])
+        && isValidId(d.uid)
+        && d.type in ['KYC', 'ORDER', 'PAYMENT', 'ESCROW', 'DISPUTE', 'SECURITY', 'WALLET']
+        && d.title is string && d.title.size() >= 2 && d.title.size() <= 120
+        && d.body is string && d.body.size() >= 2 && d.body.size() <= 400
+        && d.read is bool
+        && d.createdAt is timestamp;
+    }
+
+    function isValidSecuritySession(d) {
+      return d.keys().hasAll(['uid', 'deviceLabel', 'browser', 'os', 'timezone', 'suspicious', 'trusted', 'revoked', 'createdAt', 'lastActiveAt'])
+        && d.keys().hasOnly(['uid', 'deviceLabel', 'browser', 'os', 'timezone', 'suspicious', 'suspiciousReason', 'trusted', 'revoked', 'createdAt', 'lastActiveAt'])
+        && isValidId(d.uid)
+        && d.deviceLabel is string && d.deviceLabel.size() >= 2 && d.deviceLabel.size() <= 120
+        && d.browser is string && d.browser.size() >= 2 && d.browser.size() <= 64
+        && d.os is string && d.os.size() >= 2 && d.os.size() <= 64
+        && d.timezone is string && d.timezone.size() >= 2 && d.timezone.size() <= 64
+        && d.suspicious is bool
+        && (!('suspiciousReason' in d) || (d.suspiciousReason is string && d.suspiciousReason.size() <= 240))
+        && d.trusted is bool
+        && d.revoked is bool
+        && d.createdAt is timestamp
+        && d.lastActiveAt is timestamp;
+    }
+
+    function isValidWithdrawalWhitelist(d) {
+      return d.keys().hasAll(['uid', 'label', 'network', 'address', 'isActive', 'createdAt', 'updatedAt'])
+        && d.keys().hasOnly(['uid', 'label', 'network', 'address', 'isActive', 'createdAt', 'updatedAt'])
+        && isValidId(d.uid)
+        && d.label is string && d.label.size() >= 2 && d.label.size() <= 80
+        && d.network in ['TRON_TRC20', 'ETHEREUM_ERC20', 'POLYGON', 'BSC']
+        && d.address is string && d.address.size() >= 20 && d.address.size() <= 128
+        && d.isActive is bool
+        && d.createdAt is timestamp
+        && d.updatedAt is timestamp;
+    }
+
+    function isValidPriceAlert(d) {
+      return d.keys().hasAll(['uid', 'targetRateInrPaise', 'condition', 'isActive', 'triggered', 'createdAt'])
+        && d.keys().hasOnly(['uid', 'targetRateInrPaise', 'condition', 'isActive', 'triggered', 'lastTriggeredAtMs', 'createdAt'])
+        && isValidId(d.uid)
+        && isPosInt(d.targetRateInrPaise)
+        && d.condition in ['ABOVE', 'BELOW']
+        && d.isActive is bool
+        && d.triggered is bool
+        && (!('lastTriggeredAtMs' in d) || isNonNegInt(d.lastTriggeredAtMs))
+        && d.createdAt is timestamp;
+    }
+
+    function isValidComplianceCase(d) {
+      return d.keys().hasAll(['subjectUid', 'subjectUsername', 'caseType', 'severity', 'status', 'summary', 'createdAt', 'updatedAt'])
+        && d.keys().hasOnly(['subjectUid', 'subjectUsername', 'caseType', 'severity', 'status', 'summary', 'assignedOfficerUid', 'resolutionNote', 'createdAt', 'updatedAt'])
+        && isValidId(d.subjectUid)
+        && d.subjectUsername is string && d.subjectUsername.size() >= 2 && d.subjectUsername.size() <= 40
+        && d.caseType in ['VIDEO_KYC_ESCALATION', 'AML_ALERT', 'SUSPICIOUS_LOGIN', 'DUPLICATE_UTR', 'ACCOUNT_RESTRICTION', 'FRAUD_CLUSTER', 'MERCHANT_ANOMALY']
+        && d.severity in ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']
+        && d.status in ['OPEN', 'INVESTIGATING', 'ESCALATED', 'CLOSED']
+        && d.summary is string && d.summary.size() >= 5 && d.summary.size() <= 600
+        && (!('assignedOfficerUid' in d) || (d.assignedOfficerUid is string && d.assignedOfficerUid.size() <= 128))
+        && (!('resolutionNote' in d) || (d.resolutionNote is string && d.resolutionNote.size() <= 600))
+        && d.createdAt is timestamp
+        && d.updatedAt is timestamp;
+    }
+
+    function isValidPlatformSettings(d) {
+      return d.keys().hasAll(['brandName', 'buyerFeeBps', 'sellerFeeBps', 'merchantCommissionBps', 'tdsRateBps', 'depositFeeUsdtMicro', 'withdrawalFeeUsdtMicro', 'minOrderInrPaise', 'maxOrderInrPaise', 'dailyLimitInrPaise', 'monthlyLimitInrPaise', 'baseUsdtInrPaise', 'sandboxMode', 'updatedAt'])
+        && d.keys().hasOnly(['brandName', 'buyerFeeBps', 'sellerFeeBps', 'merchantCommissionBps', 'tdsRateBps', 'depositFeeUsdtMicro', 'withdrawalFeeUsdtMicro', 'minOrderInrPaise', 'maxOrderInrPaise', 'dailyLimitInrPaise', 'monthlyLimitInrPaise', 'baseUsdtInrPaise', 'sandboxMode', 'updatedAt'])
+        && d.brandName is string && d.brandName.size() >= 2 && d.brandName.size() <= 60
+        && isNonNegInt(d.buyerFeeBps) && d.buyerFeeBps <= 1000
+        && isNonNegInt(d.sellerFeeBps) && d.sellerFeeBps <= 1000
+        && isNonNegInt(d.merchantCommissionBps) && d.merchantCommissionBps <= 1000
+        && isNonNegInt(d.tdsRateBps) && d.tdsRateBps <= 500
+        && isNonNegInt(d.depositFeeUsdtMicro)
+        && isNonNegInt(d.withdrawalFeeUsdtMicro)
+        && isPosInt(d.minOrderInrPaise)
+        && isPosInt(d.maxOrderInrPaise) && d.maxOrderInrPaise >= d.minOrderInrPaise
+        && isPosInt(d.dailyLimitInrPaise)
+        && isPosInt(d.monthlyLimitInrPaise)
+        && isPosInt(d.baseUsdtInrPaise)
+        && d.sandboxMode is bool
+        && d.updatedAt is timestamp;
+    }
+
+    function isValidAuditLog(d) {
+      return d.keys().hasAll(['actorUid', 'action', 'targetType', 'targetId', 'summary', 'createdAt'])
+        && d.keys().hasOnly(['actorUid', 'action', 'targetType', 'targetId', 'summary', 'createdAt'])
+        && isValidId(d.actorUid)
+        && d.action is string && d.action.size() >= 2 && d.action.size() <= 80
+        && d.targetType is string && d.targetType.size() >= 2 && d.targetType.size() <= 40
+        && d.targetId is string && d.targetId.size() >= 1 && d.targetId.size() <= 128
+        && d.summary is string && d.summary.size() >= 2 && d.summary.size() <= 400
+        && d.createdAt is timestamp;
+    }
+
+    function isValidReview(d) {
+      return d.keys().hasAll(['orderId', 'authorUid', 'authorName', 'roleLabel', 'rating', 'comment', 'approved', 'createdAt'])
+        && d.keys().hasOnly(['orderId', 'authorUid', 'authorName', 'roleLabel', 'rating', 'comment', 'approved', 'createdAt'])
+        && isValidId(d.orderId)
+        && isValidId(d.authorUid)
+        && d.authorName is string && d.authorName.size() >= 2 && d.authorName.size() <= 60
+        && d.roleLabel is string && d.roleLabel.size() >= 2 && d.roleLabel.size() <= 60
+        && d.rating is int && d.rating >= 1 && d.rating <= 5
+        && d.comment is string && d.comment.size() >= 10 && d.comment.size() <= 400
+        && d.approved is bool
+        && d.createdAt is timestamp;
+    }
+
+    function isValidWalletAddressDoc(d) {
+      return d.keys().hasAll(['uid', 'network', 'address', 'isSandbox', 'createdAt'])
+        && d.keys().hasOnly(['uid', 'network', 'address', 'label', 'isSandbox', 'createdAt'])
+        && isValidId(d.uid)
+        && d.network in ['TRON_TRC20', 'ETHEREUM_ERC20', 'POLYGON', 'BSC']
+        && d.address is string && d.address.size() >= 20 && d.address.size() <= 128
+        && (!('label' in d) || (d.label is string && d.label.size() <= 80))
+        && d.isSandbox is bool
+        && d.createdAt is timestamp;
+    }
+
+    function isValidSupportedNetwork(d) {
+      return d.keys().hasAll(['name', 'tokenStandard', 'usdtContractAddress', 'testnetName', 'testnetContractAddress', 'requiredConfirmations', 'estimatedNetworkFeeUsdtMicro', 'platformWithdrawalFeeUsdtMicro', 'minDepositUsdtMicro', 'minWithdrawalUsdtMicro', 'maxWithdrawalUsdtMicro', 'dailyWithdrawalLimitUsdtMicro', 'depositsEnabled', 'withdrawalsEnabled', 'updatedAt'])
+        && d.keys().hasOnly(['name', 'tokenStandard', 'usdtContractAddress', 'testnetName', 'testnetContractAddress', 'requiredConfirmations', 'estimatedNetworkFeeUsdtMicro', 'platformWithdrawalFeeUsdtMicro', 'minDepositUsdtMicro', 'minWithdrawalUsdtMicro', 'maxWithdrawalUsdtMicro', 'dailyWithdrawalLimitUsdtMicro', 'depositsEnabled', 'withdrawalsEnabled', 'updatedAt'])
+        && d.name is string && d.name.size() >= 2 && d.name.size() <= 60
+        && d.tokenStandard is string && d.tokenStandard.size() >= 2 && d.tokenStandard.size() <= 24
+        && d.usdtContractAddress is string && d.usdtContractAddress.size() >= 20 && d.usdtContractAddress.size() <= 128
+        && d.testnetName is string && d.testnetName.size() >= 2 && d.testnetName.size() <= 80
+        && d.testnetContractAddress is string && d.testnetContractAddress.size() >= 20 && d.testnetContractAddress.size() <= 128
+        && isPosInt(d.requiredConfirmations)
+        && isNonNegInt(d.estimatedNetworkFeeUsdtMicro)
+        && isNonNegInt(d.platformWithdrawalFeeUsdtMicro)
+        && isNonNegInt(d.minDepositUsdtMicro)
+        && isNonNegInt(d.minWithdrawalUsdtMicro)
+        && isPosInt(d.maxWithdrawalUsdtMicro)
+        && isPosInt(d.dailyWithdrawalLimitUsdtMicro)
+        && d.depositsEnabled is bool
+        && d.withdrawalsEnabled is bool
+        && d.updatedAt is timestamp;
+    }
+
+    function isValidSupportedToken(d) {
+      return d.keys().hasAll(['symbol', 'name', 'network', 'contractAddress', 'decimals', 'isActive', 'updatedAt'])
+        && d.keys().hasOnly(['symbol', 'name', 'network', 'contractAddress', 'decimals', 'isActive', 'updatedAt'])
+        && d.symbol == 'USDT'
+        && d.name is string && d.name.size() >= 2 && d.name.size() <= 80
+        && d.network in ['TRON_TRC20', 'ETHEREUM_ERC20', 'POLYGON', 'BSC']
+        && d.contractAddress is string && d.contractAddress.size() >= 20 && d.contractAddress.size() <= 128
+        && d.decimals is int && d.decimals == 6
+        && d.isActive is bool
+        && d.updatedAt is timestamp;
+    }
+
+    function isValidDepositTx(d) {
+      return d.keys().hasAll(['uid', 'network', 'tokenSymbol', 'contractAddress', 'depositAddress', 'txHash', 'eventIndex', 'amountMicro', 'confirmations', 'requiredConfirmations', 'status', 'verificationSource', 'isSandbox', 'createdAt', 'updatedAt'])
+        && d.keys().hasOnly(['uid', 'username', 'network', 'tokenSymbol', 'contractAddress', 'depositAddress', 'txHash', 'eventIndex', 'amountMicro', 'confirmations', 'requiredConfirmations', 'status', 'verificationSource', 'complianceNote', 'reviewedByUid', 'isSandbox', 'creditedAtMs', 'createdAt', 'updatedAt'])
+        && isValidId(d.uid)
+        && (!('username' in d) || (d.username is string && d.username.size() <= 40))
+        && d.network in ['TRON_TRC20', 'ETHEREUM_ERC20', 'POLYGON', 'BSC']
+        && d.tokenSymbol == 'USDT'
+        && d.contractAddress is string && d.contractAddress.size() >= 20 && d.contractAddress.size() <= 128
+        && d.depositAddress is string && d.depositAddress.size() >= 20 && d.depositAddress.size() <= 128
+        && d.txHash is string && d.txHash.size() >= 20 && d.txHash.size() <= 128
+        && isNonNegInt(d.eventIndex)
+        && isPosInt(d.amountMicro)
+        && isNonNegInt(d.confirmations)
+        && isPosInt(d.requiredConfirmations)
+        && d.status in ['AWAITING_DEPOSIT', 'DETECTED', 'CONFIRMING', 'UNDER_COMPLIANCE_REVIEW', 'CREDITED', 'FAILED', 'REJECTED']
+        && d.verificationSource in ['TRONGRID_TESTNET', 'SANDBOX_FAUCET', 'ONCHAIN_VERIFIED']
+        && (!('complianceNote' in d) || (d.complianceNote is string && d.complianceNote.size() <= 400))
+        && (!('reviewedByUid' in d) || (d.reviewedByUid is string && d.reviewedByUid.size() <= 128))
+        && d.isSandbox is bool
+        && (!('creditedAtMs' in d) || isNonNegInt(d.creditedAtMs))
+        && d.createdAt is timestamp
+        && d.updatedAt is timestamp;
+    }
+
+    function isValidWithdrawalTx(d) {
+      return d.keys().hasAll(['uid', 'network', 'tokenSymbol', 'destinationAddress', 'requestedAmountMicro', 'networkFeeMicro', 'platformFeeMicro', 'totalDebitMicro', 'netSentMicro', 'status', 'riskScore', 'riskLevel', 'riskReasons', 'twoFactorVerified', 'idempotencyKey', 'isSandbox', 'createdAt', 'updatedAt'])
+        && d.keys().hasOnly(['uid', 'username', 'network', 'tokenSymbol', 'destinationAddress', 'requestedAmountMicro', 'networkFeeMicro', 'platformFeeMicro', 'totalDebitMicro', 'netSentMicro', 'status', 'riskScore', 'riskLevel', 'riskReasons', 'twoFactorVerified', 'idempotencyKey', 'txHash', 'reviewedByUid', 'reviewerNote', 'failureReason', 'isSandbox', 'createdAt', 'updatedAt'])
+        && isValidId(d.uid)
+        && (!('username' in d) || (d.username is string && d.username.size() <= 40))
+        && d.network in ['TRON_TRC20', 'ETHEREUM_ERC20', 'POLYGON', 'BSC']
+        && d.tokenSymbol == 'USDT'
+        && d.destinationAddress is string && d.destinationAddress.size() >= 20 && d.destinationAddress.size() <= 128
+        && isPosInt(d.requestedAmountMicro)
+        && isNonNegInt(d.networkFeeMicro)
+        && isNonNegInt(d.platformFeeMicro)
+        && isPosInt(d.totalDebitMicro)
+        && isPosInt(d.netSentMicro)
+        && d.status in ['PENDING', 'UNDER_REVIEW', 'APPROVED', 'PROCESSING', 'BROADCASTED', 'CONFIRMING', 'COMPLETED', 'FAILED', 'REJECTED', 'CANCELLED']
+        && isNonNegInt(d.riskScore) && d.riskScore <= 100
+        && d.riskLevel in ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']
+        && d.riskReasons is list && d.riskReasons.size() >= 1 && d.riskReasons.size() <= 8
+        && d.twoFactorVerified is bool
+        && d.idempotencyKey is string && d.idempotencyKey.size() >= 4 && d.idempotencyKey.size() <= 96
+        && (!('txHash' in d) || (d.txHash is string && d.txHash.size() <= 128))
+        && (!('reviewedByUid' in d) || (d.reviewedByUid is string && d.reviewedByUid.size() <= 128))
+        && (!('reviewerNote' in d) || (d.reviewerNote is string && d.reviewerNote.size() <= 400))
+        && (!('failureReason' in d) || (d.failureReason is string && d.failureReason.size() <= 400))
+        && d.isSandbox is bool
+        && d.createdAt is timestamp
+        && d.updatedAt is timestamp;
+    }
+
+    function isValidBlockchainEvent(d) {
+      return d.keys().hasAll(['uid', 'network', 'txHash', 'eventIndex', 'direction', 'contractAddress', 'amountMicro', 'confirmations', 'processedRecordId', 'createdAt'])
+        && d.keys().hasOnly(['uid', 'network', 'txHash', 'eventIndex', 'direction', 'contractAddress', 'amountMicro', 'confirmations', 'processedRecordId', 'createdAt'])
+        && isValidId(d.uid)
+        && d.network in ['TRON_TRC20', 'ETHEREUM_ERC20', 'POLYGON', 'BSC']
+        && d.txHash is string && d.txHash.size() >= 20 && d.txHash.size() <= 128
+        && isNonNegInt(d.eventIndex)
+        && d.direction in ['DEPOSIT', 'WITHDRAWAL']
+        && d.contractAddress is string && d.contractAddress.size() >= 20 && d.contractAddress.size() <= 128
+        && isPosInt(d.amountMicro)
+        && isNonNegInt(d.confirmations)
+        && isValidId(d.processedRecordId)
+        && d.createdAt is timestamp;
+    }
+
+    function isValidWalletLedgerEntry(d) {
+      return d.keys().hasAll(['uid', 'entryType', 'network', 'asset', 'deltaAvailableMicro', 'deltaReservedMicro', 'balanceBeforeMicro', 'balanceAfterMicro', 'referenceId', 'note', 'isSandbox', 'createdAt'])
+        && d.keys().hasOnly(['uid', 'entryType', 'network', 'asset', 'deltaAvailableMicro', 'deltaReservedMicro', 'balanceBeforeMicro', 'balanceAfterMicro', 'referenceId', 'note', 'isSandbox', 'createdAt'])
+        && isValidId(d.uid)
+        && d.entryType in ['DEPOSIT_CREDIT', 'WITHDRAWAL_RESERVE', 'WITHDRAWAL_SETTLE', 'WITHDRAWAL_REFUND', 'P2P_ESCROW_LOCK', 'P2P_ESCROW_RELEASE', 'P2P_ESCROW_REFUND', 'ADMIN_ADJUSTMENT']
+        && d.network in ['TRON_TRC20', 'ETHEREUM_ERC20', 'POLYGON', 'BSC']
+        && d.asset == 'USDT'
+        && d.deltaAvailableMicro is int
+        && d.deltaReservedMicro is int
+        && isNonNegInt(d.balanceBeforeMicro)
+        && isNonNegInt(d.balanceAfterMicro)
+        && d.referenceId is string && d.referenceId.size() >= 1 && d.referenceId.size() <= 128
+        && d.note is string && d.note.size() >= 2 && d.note.size() <= 300
+        && d.isSandbox is bool
+        && d.createdAt is timestamp;
+    }
+
+    function isValidWalletReservation(d) {
+      return d.keys().hasAll(['uid', 'purpose', 'referenceId', 'amountMicro', 'status', 'createdAt', 'updatedAt'])
+        && d.keys().hasOnly(['uid', 'purpose', 'referenceId', 'amountMicro', 'status', 'createdAt', 'updatedAt'])
+        && isValidId(d.uid)
+        && d.purpose in ['P2P_ESCROW', 'WITHDRAWAL_PENDING']
+        && d.referenceId is string && d.referenceId.size() >= 1 && d.referenceId.size() <= 128
+        && isPosInt(d.amountMicro)
+        && d.status in ['ACTIVE', 'RELEASED', 'REFUNDED']
+        && d.createdAt is timestamp
+        && d.updatedAt is timestamp;
+    }
+
+    function isValidWalletSecuritySettings(d) {
+      return d.keys().hasAll(['newAddressCooldownHours', 'manualReviewThresholdUsdtMicro', 'dailyWithdrawalLimitUsdtMicro', 'require2faForWithdrawals', 'sandboxFaucetEnabled', 'updatedAt'])
+        && d.keys().hasOnly(['newAddressCooldownHours', 'manualReviewThresholdUsdtMicro', 'dailyWithdrawalLimitUsdtMicro', 'require2faForWithdrawals', 'sandboxFaucetEnabled', 'updatedAt'])
+        && isNonNegInt(d.newAddressCooldownHours) && d.newAddressCooldownHours <= 168
+        && isPosInt(d.manualReviewThresholdUsdtMicro)
+        && isPosInt(d.dailyWithdrawalLimitUsdtMicro)
+        && d.require2faForWithdrawals is bool
+        && d.sandboxFaucetEnabled is bool
+        && d.updatedAt is timestamp;
+    }
+
+    function isValidWalletAuditLog(d) {
+      return d.keys().hasAll(['actorUid', 'subjectUid', 'action', 'targetType', 'targetId', 'summary', 'createdAt'])
+        && d.keys().hasOnly(['actorUid', 'subjectUid', 'action', 'targetType', 'targetId', 'summary', 'createdAt'])
+        && isValidId(d.actorUid)
+        && isValidId(d.subjectUid)
+        && d.action is string && d.action.size() >= 2 && d.action.size() <= 80
+        && d.targetType in ['DEPOSIT', 'WITHDRAWAL', 'WHITELIST', 'NETWORK', 'SECURITY_POLICY', 'TRADING_ACCESS', 'COIN_GOVERNANCE']
+        && d.targetId is string && d.targetId.size() >= 1 && d.targetId.size() <= 128
+        && d.summary is string && d.summary.size() >= 2 && d.summary.size() <= 400
+        && d.createdAt is timestamp;
+    }
+
+    function isValidSupportedCoin(d) {
+      return d.keys().hasAll(['symbol', 'name', 'coingeckoId', 'iconKey', 'accentHex', 'description', 'decimals', 'supportedNetworks', 'networkContracts', 'minTradeQuantityE8', 'maxTradeQuantityE8', 'minOrderInrPaise', 'maxOrderInrPaise', 'tradingFeeBps', 'confirmationsRequired', 'depositEnabled', 'withdrawalEnabled', 'tradingEnabled', 'custodyApproved', 'isFeatured', 'sortOrder', 'updatedAt'])
+        && d.keys().hasOnly(['symbol', 'name', 'coingeckoId', 'iconKey', 'accentHex', 'description', 'decimals', 'supportedNetworks', 'networkContracts', 'minTradeQuantityE8', 'maxTradeQuantityE8', 'minOrderInrPaise', 'maxOrderInrPaise', 'tradingFeeBps', 'confirmationsRequired', 'depositEnabled', 'withdrawalEnabled', 'tradingEnabled', 'custodyApproved', 'isFeatured', 'sortOrder', 'updatedByUid', 'updatedAt'])
+        && d.symbol is string && d.symbol.size() >= 2 && d.symbol.size() <= 12
+        && d.name is string && d.name.size() >= 2 && d.name.size() <= 64
+        && d.coingeckoId is string && d.coingeckoId.size() >= 2 && d.coingeckoId.size() <= 64
+        && d.iconKey is string && d.iconKey.size() >= 2 && d.iconKey.size() <= 32
+        && d.accentHex is string && d.accentHex.size() >= 4 && d.accentHex.size() <= 16
+        && d.description is string && d.description.size() <= 500
+        && isNonNegInt(d.decimals) && d.decimals <= 18
+        && d.supportedNetworks is list && d.supportedNetworks.size() >= 1 && d.supportedNetworks.size() <= 8
+        && d.networkContracts is list && d.networkContracts.size() >= 1 && d.networkContracts.size() <= 8
+        && isPosInt(d.minTradeQuantityE8)
+        && isPosInt(d.maxTradeQuantityE8) && d.maxTradeQuantityE8 >= d.minTradeQuantityE8
+        && isPosInt(d.minOrderInrPaise)
+        && isPosInt(d.maxOrderInrPaise) && d.maxOrderInrPaise >= d.minOrderInrPaise
+        && isNonNegInt(d.tradingFeeBps) && d.tradingFeeBps <= 1000
+        && isPosInt(d.confirmationsRequired)
+        && d.depositEnabled is bool
+        && d.withdrawalEnabled is bool
+        && d.tradingEnabled is bool
+        && d.custodyApproved is bool
+        && d.isFeatured is bool
+        && isNonNegInt(d.sortOrder)
+        && (!('updatedByUid' in d) || (d.updatedByUid is string && d.updatedByUid.size() <= 128))
+        && d.updatedAt is timestamp;
+    }
+
+    function isValidCoinTradingSettings(d) {
+      return d.keys().hasAll(['symbol', 'tradingEnabled', 'depositEnabled', 'withdrawalEnabled', 'custodyApproved', 'minTradeQuantityE8', 'maxTradeQuantityE8', 'tradingFeeBps', 'confirmationsRequired', 'updatedAt'])
+        && d.keys().hasOnly(['symbol', 'tradingEnabled', 'depositEnabled', 'withdrawalEnabled', 'custodyApproved', 'minTradeQuantityE8', 'maxTradeQuantityE8', 'tradingFeeBps', 'confirmationsRequired', 'updatedByUid', 'updatedAt'])
+        && d.symbol is string && d.symbol.size() >= 2 && d.symbol.size() <= 12
+        && d.tradingEnabled is bool
+        && d.depositEnabled is bool
+        && d.withdrawalEnabled is bool
+        && d.custodyApproved is bool
+        && isPosInt(d.minTradeQuantityE8)
+        && isPosInt(d.maxTradeQuantityE8) && d.maxTradeQuantityE8 >= d.minTradeQuantityE8
+        && isNonNegInt(d.tradingFeeBps) && d.tradingFeeBps <= 1000
+        && isPosInt(d.confirmationsRequired)
+        && (!('updatedByUid' in d) || (d.updatedByUid is string && d.updatedByUid.size() <= 128))
+        && d.updatedAt is timestamp;
+    }
+
+    function isValidCoinWatchlist(d) {
+      return d.keys().hasAll(['uid', 'symbol', 'createdAt'])
+        && d.keys().hasOnly(['uid', 'symbol', 'createdAt'])
+        && isValidId(d.uid)
+        && d.symbol is string && d.symbol.size() >= 2 && d.symbol.size() <= 12
+        && d.createdAt is timestamp;
+    }
+
+    function isValidCoinPriceAlert(d) {
+      return d.keys().hasAll(['uid', 'symbol', 'targetInrPaise', 'condition', 'isActive', 'triggered', 'createdAt'])
+        && d.keys().hasOnly(['uid', 'symbol', 'targetInrPaise', 'condition', 'isActive', 'triggered', 'lastTriggeredAtMs', 'createdAt'])
+        && isValidId(d.uid)
+        && d.symbol is string && d.symbol.size() >= 2 && d.symbol.size() <= 12
+        && isPosInt(d.targetInrPaise)
+        && d.condition in ['ABOVE', 'BELOW']
+        && d.isActive is bool
+        && d.triggered is bool
+        && (!('lastTriggeredAtMs' in d) || isNonNegInt(d.lastTriggeredAtMs))
+        && d.createdAt is timestamp;
+    }
+
+    function isValidMultiCoinOrder(d) {
+      return d.keys().hasAll(['orderId', 'orderCode', 'symbol', 'side', 'buyerUid', 'sellerUid', 'quantityE8', 'rateInrPaise', 'inrPaise', 'feeE8', 'network', 'status', 'isSandbox', 'createdAt', 'updatedAt'])
+        && d.keys().hasOnly(['orderId', 'orderCode', 'symbol', 'side', 'buyerUid', 'sellerUid', 'quantityE8', 'rateInrPaise', 'inrPaise', 'feeE8', 'network', 'status', 'isSandbox', 'createdAt', 'updatedAt'])
+        && isValidId(d.orderId)
+        && d.orderCode is string && d.orderCode.size() >= 6 && d.orderCode.size() <= 32
+        && d.symbol is string && d.symbol.size() >= 2 && d.symbol.size() <= 12
+        && d.side in ['BUY', 'SELL']
+        && isValidId(d.buyerUid) && isValidId(d.sellerUid)
+        && isPosInt(d.quantityE8)
+        && isPosInt(d.rateInrPaise)
+        && isPosInt(d.inrPaise)
+        && isNonNegInt(d.feeE8)
+        && d.network in ['TRON_TRC20', 'ETHEREUM_ERC20', 'POLYGON', 'BSC', 'BITCOIN', 'SOLANA', 'XRP_LEDGER', 'DOGECOIN']
+        && d.status in ['CREATED', 'AWAITING_ACCEPTANCE', 'ACCEPTED', 'ESCROW_RESERVED', 'PAYMENT_PENDING', 'PAYMENT_SUBMITTED', 'PAYMENT_VERIFIED', 'SETTLING', 'COMPLETED', 'CANCELLED', 'EXPIRED', 'DISPUTED', 'REFUNDED']
+        && d.isSandbox is bool
+        && d.createdAt is timestamp
+        && d.updatedAt is timestamp;
+    }
+
+    function isValidPriceLock(d) {
+      return d.keys().hasAll(['lockId', 'uid', 'offerId', 'asset', 'side', 'rateInrPaise', 'ttlSeconds', 'expiresAtMs', 'signature', 'status', 'createdAt', 'updatedAt'])
+        && d.keys().hasOnly(['lockId', 'uid', 'offerId', 'asset', 'side', 'rateInrPaise', 'ttlSeconds', 'expiresAtMs', 'signature', 'status', 'createdAt', 'updatedAt'])
+        && d.lockId is string && d.lockId.size() >= 6 && d.lockId.size() <= 64
+        && isValidId(d.uid)
+        && isValidId(d.offerId)
+        && d.asset is string && d.asset.size() >= 2 && d.asset.size() <= 12
+        && d.side in ['BUY', 'SELL']
+        && isPosInt(d.rateInrPaise)
+        && isPosInt(d.ttlSeconds) && d.ttlSeconds <= 600
+        && isPosInt(d.expiresAtMs)
+        && d.signature is string && d.signature.size() >= 32 && d.signature.size() <= 128
+        && d.status in ['LOCKED', 'CONSUMED', 'EXPIRED']
+        && d.createdAt is timestamp
+        && d.updatedAt is timestamp;
+    }
+
+    function isValidSupportMessage(d) {
+      return d.keys().hasAll(['ticketId', 'senderUid', 'senderName', 'senderRole', 'body', 'createdAt'])
+        && d.keys().hasOnly(['ticketId', 'senderUid', 'senderName', 'senderRole', 'body', 'createdAt'])
+        && isValidId(d.ticketId)
+        && isValidId(d.senderUid)
+        && d.senderName is string && d.senderName.size() >= 2 && d.senderName.size() <= 80
+        && d.senderRole in ['USER', 'SUPPORT', 'ADMIN']
+        && d.body is string && d.body.size() >= 1 && d.body.size() <= 1000
+        && d.createdAt is timestamp;
+    }
+
+    function isValidMerchantApiKey(d) {
+      return d.keys().hasAll(['uid', 'keyHash', 'keyPrefix', 'label', 'scopes', 'rateLimitPerMin', 'revoked', 'createdAt', 'updatedAt'])
+        && d.keys().hasOnly(['uid', 'keyHash', 'keyPrefix', 'label', 'scopes', 'rateLimitPerMin', 'revoked', 'createdAt', 'updatedAt'])
+        && isValidId(d.uid)
+        && d.keyHash is string && d.keyHash.size() == 64
+        && d.keyPrefix is string && d.keyPrefix.size() >= 8 && d.keyPrefix.size() <= 32
+        && d.label is string && d.label.size() >= 2 && d.label.size() <= 64
+        && d.scopes is list && d.scopes.size() >= 1 && d.scopes.size() <= 8
+        && isPosInt(d.rateLimitPerMin) && d.rateLimitPerMin <= 600
+        && d.revoked is bool
+        && d.createdAt is timestamp
+        && d.updatedAt is timestamp;
+    }
+
+    function isValidMerchantWebhook(d) {
+      return d.keys().hasAll(['uid', 'url', 'events', 'secretMasked', 'isActive', 'createdAt', 'updatedAt'])
+        && d.keys().hasOnly(['uid', 'url', 'events', 'secretMasked', 'isActive', 'lastTestStatus', 'createdAt', 'updatedAt'])
+        && isValidId(d.uid)
+        && d.url is string && d.url.size() >= 10 && d.url.size() <= 300 && d.url.matches('^https://.*')
+        && d.events is list && d.events.size() >= 1 && d.events.size() <= 10
+        && d.secretMasked is string && d.secretMasked.size() >= 6 && d.secretMasked.size() <= 40
+        && d.isActive is bool
+        && (!('lastTestStatus' in d) || (d.lastTestStatus is string && d.lastTestStatus.size() <= 120))
+        && d.createdAt is timestamp
+        && d.updatedAt is timestamp;
+    }
+
+    function isValidMaintenanceWindow(d) {
+      return d.keys().hasAll(['title', 'description', 'affectedServices', 'status', 'scheduledStartIso', 'scheduledEndIso', 'createdByUid', 'createdAt', 'updatedAt'])
+        && d.keys().hasOnly(['title', 'description', 'affectedServices', 'status', 'scheduledStartIso', 'scheduledEndIso', 'createdByUid', 'createdAt', 'updatedAt'])
+        && d.title is string && d.title.size() >= 3 && d.title.size() <= 120
+        && d.description is string && d.description.size() >= 5 && d.description.size() <= 500
+        && d.affectedServices is list && d.affectedServices.size() >= 1 && d.affectedServices.size() <= 10
+        && d.status in ['SCHEDULED', 'IN_PROGRESS', 'COMPLETED']
+        && d.scheduledStartIso is string && d.scheduledStartIso.size() >= 10 && d.scheduledStartIso.size() <= 40
+        && d.scheduledEndIso is string && d.scheduledEndIso.size() >= 10 && d.scheduledEndIso.size() <= 40
+        && isValidId(d.createdByUid)
+        && d.createdAt is timestamp
+        && d.updatedAt is timestamp;
+    }
+
+    // --- Connection Probe ---
+    match /test/connection {
+      allow get: if true;
+    }
+
+    // --- Admin Registry ---
+    match /admins/{adminId} {
+      allow get: if isValidId(adminId) && (isOwner(adminId) || isAdmin());
+      allow list: if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    // --- Platform Settings (Public Read, Admin Write) ---
+    match /platform_settings/{settingId} {
+      allow get: if isValidId(settingId);
+      allow list: if true;
+      allow create, update: if isValidId(settingId) && isAdmin() && isValidPlatformSettings(incoming()) && incoming().updatedAt == request.time;
+      allow delete: if false;
+    }
+
+    // --- Users (Public-safe account summary) ---
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isValidId(userId) && isOwner(userId) && isEmailVerified()
+        && isValidUserAccount(incoming())
+        && incoming().uid == request.auth.uid
+        && incoming().role in ['BUYER', 'SELLER', 'MERCHANT']
+        && incoming().kycStatus == 'NOT_STARTED'
+        && incoming().accountStatus == 'ACTIVE'
+        && incoming().completedTrades == 0
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(userId) && isEmailVerified() && isValidUserAccount(incoming())
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin() || (
+            isOwner(userId)
+            && incoming().role in ['BUYER', 'SELLER', 'MERCHANT']
+            && incoming().kycStatus == existing().kycStatus
+            && incoming().diff(existing()).affectedKeys().hasOnly(['username', 'displayName', 'walletAddress', 'role', 'accountStatus', 'withdrawalLocked', 'restrictedReason', 'updatedAt'])
+          )
+        );
+      allow delete: if false;
+
+      // --- Split Collection for PII ---
+      match /private/{docId} {
+        allow get: if isValidId(userId) && isValidId(docId) && (isOwner(userId) || isAdmin());
+        allow list: if isValidId(userId) && (isOwner(userId) || isAdmin());
+        allow create, update: if isValidId(userId) && isValidId(docId) && (isOwner(userId) || isAdmin())
+          && isEmailVerified()
+          && isValidPrivateProfile(incoming())
+          && incoming().uid == userId
+          && incoming().updatedAt == request.time;
+        allow delete: if false;
+      }
+    }
+
+    // --- Marketplace P2P Offers ---
+    match /p2p_offers/{offerId} {
+      allow get: if isValidId(offerId) && (existing().isActive == true || isOwner(existing().merchantUid) || isAdmin());
+      allow list: if resource.data.isActive == true || (isSignedIn() && resource.data.merchantUid == request.auth.uid) || isAdmin();
+      allow create: if isValidId(offerId) && isEmailVerified() && isValidOffer(incoming())
+        && (isAdmin() || (
+          isKycVerifiedActive()
+          && incoming().merchantUid == request.auth.uid
+          && incoming().verificationLevel == 'BASIC'
+          && (!('isDemo' in incoming()) || incoming().isDemo == false)
+        ))
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(offerId) && isEmailVerified() && isValidOffer(incoming())
+        && incoming().merchantUid == existing().merchantUid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin() || (
+            isOwner(existing().merchantUid)
+            && incoming().verificationLevel == existing().verificationLevel
+            && incoming().diff(existing()).affectedKeys().hasOnly(['rateInrPaise', 'availableUsdtMicro', 'availableAssetE8', 'minInrPaise', 'maxInrPaise', 'paymentMethods', 'network', 'avgCompletionMins', 'termsNote', 'isActive', 'updatedAt'])
+          )
+        );
+      allow delete: if isValidId(offerId) && isAdmin();
+    }
+
+    // --- P2P Orders, Audit Events, & Counterparty Chat ---
+    match /p2p_orders/{orderId} {
+      allow get: if isValidId(orderId) && isSignedIn() && (existing().buyerUid == request.auth.uid || existing().sellerUid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.buyerUid == request.auth.uid || resource.data.sellerUid == request.auth.uid || isAdmin());
+      allow create: if isValidId(orderId) && isEmailVerified() && isValidOrder(incoming())
+        && (isAdmin() || isKycVerifiedActive())
+        && (incoming().buyerUid == request.auth.uid || incoming().sellerUid == request.auth.uid)
+        && incoming().buyerUid != incoming().sellerUid
+        && incoming().status in ['CREATED', 'AWAITING_ACCEPTANCE']
+        && incoming().escrowStatus == 'NONE'
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/p2p_offers/$(incoming().offerId));
+      allow update: if isValidId(orderId) && isEmailVerified() && isValidOrder(incoming())
+        && incoming().orderCode == existing().orderCode
+        && incoming().offerId == existing().offerId
+        && incoming().side == existing().side
+        && incoming().buyerUid == existing().buyerUid
+        && incoming().sellerUid == existing().sellerUid
+        && incoming().usdtMicro == existing().usdtMicro
+        && incoming().inrPaise == existing().inrPaise
+        && incoming().rateInrPaise == existing().rateInrPaise
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin() || (
+            (isKycVerifiedActive() || incoming().status in ['CANCELLED', 'EXPIRED', 'DISPUTED'] || incoming().status == existing().status) && (
+            // Allow buyer to submit a one-time rating on completed orders
+            (isOwner(existing().buyerUid)
+              && existing().status == 'COMPLETED'
+              && !('buyerRating' in existing())
+              && incoming().status == 'COMPLETED'
+              && incoming().escrowStatus == existing().escrowStatus
+              && incoming().diff(existing()).affectedKeys().hasOnly(['buyerRating', 'updatedAt'])) ||
+            (!(existing().status in ['COMPLETED', 'CANCELLED', 'EXPIRED', 'REFUNDED']) && (
+              // Allow buyer or seller to expire an overdue pre-settlement order
+              ((isOwner(existing().buyerUid) || isOwner(existing().sellerUid))
+                && request.time.toMillis() > existing().expiresAtMs
+                && existing().status in ['CREATED', 'AWAITING_ACCEPTANCE', 'ACCEPTED', 'ESCROW_RESERVED', 'PAYMENT_PENDING']
+                && incoming().status == 'EXPIRED'
+                && incoming().escrowStatus in ['NONE', 'REFUNDED']
+                && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'escrowStatus', 'updatedAt'])) ||
+              // Buyer actions: submit payment ref, cancel pre-payment, or open dispute
+              (isOwner(existing().buyerUid)
+                && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'paymentRef', 'buyerWalletAddress', 'paymentAccountSnapshot', 'updatedAt'])
+                && (
+                  (existing().status in ['ACCEPTED', 'ESCROW_RESERVED', 'PAYMENT_PENDING'] && incoming().status == 'PAYMENT_SUBMITTED') ||
+                  (existing().status in ['CREATED', 'AWAITING_ACCEPTANCE', 'ACCEPTED', 'PAYMENT_PENDING'] && incoming().status == 'CANCELLED') ||
+                  (existing().status in ['PAYMENT_SUBMITTED', 'PAYMENT_VERIFIED', 'SETTLING'] && incoming().status == 'DISPUTED') ||
+                  (incoming().status == existing().status)
+                )) ||
+              // Seller actions: accept, reserve escrow, verify payment & release, cancel pre-payment, or dispute
+              (isOwner(existing().sellerUid)
+                && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'escrowStatus', 'escrowTxHash', 'sellerWalletAddress', 'paymentAccountSnapshot', 'releaseConfirmed2FA', 'completedAtMs', 'updatedAt'])
+                && (
+                  (existing().status in ['CREATED', 'AWAITING_ACCEPTANCE'] && incoming().status in ['ACCEPTED', 'CANCELLED']) ||
+                  (existing().status in ['CREATED', 'AWAITING_ACCEPTANCE', 'ACCEPTED'] && incoming().status in ['ESCROW_RESERVED', 'PAYMENT_PENDING'] && incoming().escrowStatus == 'RESERVED') ||
+                  (existing().status in ['PAYMENT_SUBMITTED', 'PAYMENT_VERIFIED', 'SETTLING'] && incoming().status in ['PAYMENT_VERIFIED', 'SETTLING', 'COMPLETED'] && incoming().escrowStatus in ['RESERVED', 'RELEASED']) ||
+                  (existing().status in ['PAYMENT_SUBMITTED', 'PAYMENT_VERIFIED', 'SETTLING'] && incoming().status == 'DISPUTED') ||
+                  (incoming().status == existing().status)
+                ))
+            ))
+          ))
+        );
+      allow delete: if false;
+
+      match /events/{eventId} {
+        allow get: if isValidId(orderId) && isValidId(eventId) && isSignedIn() && (
+          get(/databases/$(database)/documents/p2p_orders/$(orderId)).data.buyerUid == request.auth.uid ||
+          get(/databases/$(database)/documents/p2p_orders/$(orderId)).data.sellerUid == request.auth.uid ||
+          isAdmin()
+        );
+        allow list: if isValidId(orderId) && isSignedIn() && (
+          get(/databases/$(database)/documents/p2p_orders/$(orderId)).data.buyerUid == request.auth.uid ||
+          get(/databases/$(database)/documents/p2p_orders/$(orderId)).data.sellerUid == request.auth.uid ||
+          isAdmin()
+        );
+        allow create: if isValidId(orderId) && isValidId(eventId) && isEmailVerified()
+          && isValidOrderEvent(incoming())
+          && incoming().orderId == orderId
+          && incoming().actorUid == request.auth.uid
+          && incoming().createdAt == request.time
+          && (
+            get(/databases/$(database)/documents/p2p_orders/$(orderId)).data.buyerUid == request.auth.uid ||
+            get(/databases/$(database)/documents/p2p_orders/$(orderId)).data.sellerUid == request.auth.uid ||
+            isAdmin()
+          );
+        allow update, delete: if false;
+      }
+
+      match /messages/{messageId} {
+        allow get: if isValidId(orderId) && isValidId(messageId) && isSignedIn() && (
+          get(/databases/$(database)/documents/p2p_orders/$(orderId)).data.buyerUid == request.auth.uid ||
+          get(/databases/$(database)/documents/p2p_orders/$(orderId)).data.sellerUid == request.auth.uid ||
+          isAdmin()
+        );
+        allow list: if isValidId(orderId) && isSignedIn() && (
+          get(/databases/$(database)/documents/p2p_orders/$(orderId)).data.buyerUid == request.auth.uid ||
+          get(/databases/$(database)/documents/p2p_orders/$(orderId)).data.sellerUid == request.auth.uid ||
+          isAdmin()
+        );
+        allow create: if isValidId(orderId) && isValidId(messageId) && isEmailVerified()
+          && isValidOrderMessage(incoming())
+          && incoming().orderId == orderId
+          && incoming().senderUid == request.auth.uid
+          && incoming().createdAt == request.time
+          && (
+            get(/databases/$(database)/documents/p2p_orders/$(orderId)).data.buyerUid == request.auth.uid ||
+            get(/databases/$(database)/documents/p2p_orders/$(orderId)).data.sellerUid == request.auth.uid ||
+            isAdmin()
+          );
+        allow update, delete: if false;
+      }
+    }
+
+    // --- KYC Submissions (Owner or Admin/Compliance Only) ---
+    match /kyc_submissions/{submissionId} {
+      allow get: if isValidId(submissionId) && isSignedIn() && (existing().uid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if isValidId(submissionId) && isEmailVerified() && isValidKyc(incoming())
+        && incoming().uid == request.auth.uid
+        && incoming().status == 'PENDING'
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(submissionId) && isEmailVerified() && isValidKyc(incoming())
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin() || (
+            isOwner(existing().uid)
+            && existing().status in ['NOT_STARTED', 'REJECTED', 'ADDITIONAL_INFO_REQUIRED', 'EXPIRED']
+            && incoming().status == 'PENDING'
+            && incoming().diff(existing()).affectedKeys().hasOnly(['fullLegalName', 'dateOfBirth', 'country', 'residentialAddress', 'idType', 'maskedIdNumber', 'panMasked', 'documentExpiry', 'livenessMethod', 'videoStatus', 'videoChallengePrompt', 'livenessScore', 'faceMatchScore', 'providerMode', 'kycExpiresAtMs', 'verificationHistory', 'bankAccountLast4', 'bankIfsc', 'accountHolderName', 'pepDeclared', 'sanctionsDeclaredClear', 'sourceOfFunds', 'status', 'updatedAt'])
+          )
+        );
+      allow delete: if false;
+    }
+
+    // --- Payment Accounts (Strictly Owner or Admin) ---
+    match /payment_accounts/{accountId} {
+      allow get: if isValidId(accountId) && isSignedIn() && (existing().uid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if isValidId(accountId) && isEmailVerified() && isValidPaymentAccount(incoming())
+        && incoming().uid == request.auth.uid
+        && incoming().verificationStatus == 'PENDING'
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(accountId) && isEmailVerified() && isValidPaymentAccount(incoming())
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin() || (
+            isOwner(existing().uid)
+            && incoming().verificationStatus == existing().verificationStatus
+            && incoming().diff(existing()).affectedKeys().hasOnly(['isActive', 'updatedAt'])
+          )
+        );
+      allow delete: if isValidId(accountId) && isSignedIn() && (existing().uid == request.auth.uid || isAdmin());
+    }
+
+    // --- Payment Reconciliation Records ---
+    match /payment_records/{recordId} {
+      allow get: if isValidId(recordId) && isSignedIn() && (existing().uid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if isValidId(recordId) && isEmailVerified() && isValidPaymentRecord(incoming())
+        && (isAdmin() || incoming().uid == request.auth.uid)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(recordId) && isAdmin() && isValidPaymentRecord(incoming())
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time;
+      allow delete: if false;
+    }
+
+    // --- Wallets & Transactions ---
+    match /wallets/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isValidId(userId) && isOwner(userId) && isEmailVerified()
+        && isValidWalletLedger(incoming())
+        && incoming().uid == request.auth.uid
+        && incoming().availableUsdtMicro == 0
+        && incoming().reservedUsdtMicro == 0
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(userId) && isEmailVerified() && isValidWalletLedger(incoming())
+        && incoming().uid == existing().uid
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin() || (
+            isOwner(userId)
+            && incoming().diff(existing()).affectedKeys().hasOnly(['connectedAddress', 'preferredNetwork', 'availableUsdtMicro', 'reservedUsdtMicro', 'updatedAt'])
+          )
+        );
+      allow delete: if false;
+    }
+
+    match /wallet_transactions/{txId} {
+      allow get: if isValidId(txId) && isSignedIn() && (existing().uid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if isValidId(txId) && isEmailVerified() && isValidWalletTx(incoming())
+        && (isAdmin() || incoming().uid == request.auth.uid)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(txId) && isAdmin() && isValidWalletTx(incoming())
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time;
+      allow delete: if false;
+    }
+
+    // --- Merchants ---
+    match /merchants/{merchantId} {
+      allow get: if isValidId(merchantId);
+      allow list: if true;
+      allow create: if isValidId(merchantId) && isEmailVerified() && isValidMerchant(incoming())
+        && (isAdmin() || (
+          isKycVerifiedActive()
+          && incoming().uid == request.auth.uid
+          && incoming().verificationLevel == 'BASIC'
+          && (!('isDemo' in incoming()) || incoming().isDemo == false)
+          && incoming().completedOrders == 0
+          && incoming().totalVolumeUsdtMicro == 0
+        ))
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(merchantId) && isEmailVerified() && isValidMerchant(incoming())
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin() || (
+            isOwner(existing().uid)
+            && incoming().verificationLevel == existing().verificationLevel
+            && incoming().commissionBps == existing().commissionBps
+            && incoming().diff(existing()).affectedKeys().hasOnly(['businessName', 'profileBio', 'declaredLiquidityUsdtMicro', 'minOrderInrPaise', 'maxOrderInrPaise', 'isAvailable', 'visibilityMode', 'showVipBadge', 'updatedAt'])
+          )
+        );
+      allow delete: if false;
+    }
+
+    // --- Disputes ---
+    match /disputes/{disputeId} {
+      allow get: if isValidId(disputeId) && isSignedIn() && (existing().raisedByUid == request.auth.uid || existing().counterpartyUid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.raisedByUid == request.auth.uid || resource.data.counterpartyUid == request.auth.uid || isAdmin());
+      allow create: if isValidId(disputeId) && isEmailVerified() && isValidDispute(incoming())
+        && incoming().raisedByUid == request.auth.uid
+        && incoming().status == 'OPEN'
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/p2p_orders/$(incoming().orderId));
+      allow update: if isValidId(disputeId) && isEmailVerified() && isValidDispute(incoming())
+        && incoming().orderId == existing().orderId
+        && incoming().raisedByUid == existing().raisedByUid
+        && incoming().counterpartyUid == existing().counterpartyUid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin() || (
+            !(existing().status in ['RESOLVED', 'REJECTED'])
+            && (isOwner(existing().raisedByUid) || isOwner(existing().counterpartyUid))
+            && incoming().status in [existing().status, 'ESCALATED']
+            && incoming().diff(existing()).affectedKeys().hasOnly(['evidenceSummary', 'evidenceItems', 'paymentRef', 'status', 'escalatedToCompliance', 'escalatedAtMs', 'updatedAt'])
+          )
+        );
+      allow delete: if false;
+    }
+
+    // --- Risk Assessments ---
+    match /risk_assessments/{assessmentId} {
+      allow get: if isValidId(assessmentId) && isSignedIn() && (existing().subjectUid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.subjectUid == request.auth.uid || isAdmin());
+      allow create: if isValidId(assessmentId) && isEmailVerified() && isValidRiskAssessment(incoming())
+        && (isAdmin() || (incoming().subjectUid == request.auth.uid && incoming().humanDecision == 'PENDING_REVIEW'))
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(assessmentId) && isAdmin() && isValidRiskAssessment(incoming())
+        && incoming().subjectUid == existing().subjectUid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time;
+      allow delete: if false;
+    }
+
+    // --- Support Tickets & Live Support Chat ---
+    match /support_tickets/{ticketId} {
+      allow get: if isValidId(ticketId) && ((isSignedIn() && existing().uid == request.auth.uid) || isAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if isValidId(ticketId) && isValidSupportTicket(incoming())
+        && incoming().status == 'OPEN'
+        && (!('uid' in incoming()) || (isSignedIn() && incoming().uid == request.auth.uid))
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(ticketId) && isAdmin() && isValidSupportTicket(incoming())
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time;
+      allow delete: if false;
+
+      match /messages/{messageId} {
+        allow get: if isValidId(ticketId) && isValidId(messageId) && isSignedIn() && (
+          get(/databases/$(database)/documents/support_tickets/$(ticketId)).data.uid == request.auth.uid ||
+          isAdmin()
+        );
+        allow list: if isValidId(ticketId) && isSignedIn() && (
+          get(/databases/$(database)/documents/support_tickets/$(ticketId)).data.uid == request.auth.uid ||
+          isAdmin()
+        );
+        allow create: if isValidId(ticketId) && isValidId(messageId) && isEmailVerified()
+          && isValidSupportMessage(incoming())
+          && incoming().ticketId == ticketId
+          && incoming().senderUid == request.auth.uid
+          && incoming().createdAt == request.time
+          && (
+            get(/databases/$(database)/documents/support_tickets/$(ticketId)).data.uid == request.auth.uid ||
+            isAdmin()
+          );
+        allow update, delete: if false;
+      }
+    }
+
+    // --- Notifications ---
+    match /notifications/{notificationId} {
+      allow get: if isValidId(notificationId) && isSignedIn() && (existing().uid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if isValidId(notificationId) && isEmailVerified() && isValidNotification(incoming())
+        && (isAdmin() || incoming().uid == request.auth.uid)
+        && incoming().createdAt == request.time;
+      allow update: if isValidId(notificationId) && isEmailVerified() && isValidNotification(incoming())
+        && isOwner(existing().uid)
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().diff(existing()).affectedKeys().hasOnly(['read']);
+      allow delete: if false;
+    }
+
+    // --- Security Sessions / Device Management ---
+    match /security_sessions/{sessionId} {
+      allow get: if isValidId(sessionId) && isSignedIn() && (existing().uid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if isValidId(sessionId) && isEmailVerified() && isValidSecuritySession(incoming())
+        && incoming().uid == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().lastActiveAt == request.time;
+      allow update: if isValidId(sessionId) && isEmailVerified() && isValidSecuritySession(incoming())
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().lastActiveAt == request.time
+        && (
+          isAdmin() || (
+            isOwner(existing().uid)
+            && incoming().diff(existing()).affectedKeys().hasOnly(['trusted', 'revoked', 'suspicious', 'suspiciousReason', 'lastActiveAt'])
+          )
+        );
+      allow delete: if false;
+    }
+
+    // --- Withdrawal Whitelist ---
+    match /withdrawal_whitelist/{entryId} {
+      allow get: if isValidId(entryId) && isSignedIn() && (existing().uid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if isValidId(entryId) && isEmailVerified() && isValidWithdrawalWhitelist(incoming())
+        && incoming().uid == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(entryId) && isEmailVerified() && isValidWithdrawalWhitelist(incoming())
+        && isOwner(existing().uid)
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['isActive', 'label', 'updatedAt']);
+      allow delete: if isValidId(entryId) && isSignedIn() && (existing().uid == request.auth.uid || isAdmin());
+    }
+
+    // --- Price Alerts ---
+    match /price_alerts/{alertId} {
+      allow get: if isValidId(alertId) && isSignedIn() && (existing().uid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if isValidId(alertId) && isEmailVerified() && isValidPriceAlert(incoming())
+        && incoming().uid == request.auth.uid
+        && incoming().createdAt == request.time;
+      allow update: if isValidId(alertId) && isEmailVerified() && isValidPriceAlert(incoming())
+        && isOwner(existing().uid)
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().diff(existing()).affectedKeys().hasOnly(['isActive', 'triggered', 'lastTriggeredAtMs']);
+      allow delete: if isValidId(alertId) && isSignedIn() && (existing().uid == request.auth.uid || isAdmin());
+    }
+
+    // --- Compliance Cases (Admin / Compliance Officer Only) ---
+    match /compliance_cases/{caseId} {
+      allow get, list: if isAdmin();
+      allow create: if isValidId(caseId) && isAdmin() && isValidComplianceCase(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(caseId) && isAdmin() && isValidComplianceCase(incoming())
+        && incoming().subjectUid == existing().subjectUid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time;
+      allow delete: if false;
+    }
+
+    // --- Reviews / Approved Testimonials ---
+    match /reviews/{reviewId} {
+      allow get: if isValidId(reviewId) && (existing().approved == true || isOwner(existing().authorUid) || isAdmin());
+      allow list: if resource.data.approved == true || (isSignedIn() && resource.data.authorUid == request.auth.uid) || isAdmin();
+      allow create: if isValidId(reviewId) && isEmailVerified() && isValidReview(incoming())
+        && incoming().authorUid == request.auth.uid
+        && incoming().approved == false
+        && incoming().createdAt == request.time;
+      allow update: if isValidId(reviewId) && isAdmin() && isValidReview(incoming())
+        && incoming().authorUid == existing().authorUid
+        && incoming().createdAt == existing().createdAt;
+      allow delete: if false;
+    }
+
+    // --- Immutable Audit Logs ---
+    match /audit_logs/{logId} {
+      allow get, list: if isAdmin();
+      allow create: if isValidId(logId) && isEmailVerified() && isValidAuditLog(incoming())
+        && (isAdmin() || incoming().actorUid == request.auth.uid)
+        && incoming().createdAt == request.time;
+      allow update, delete: if false;
+    }
+
+    // --- Deterministic Deposit Addresses ---
+    match /wallet_addresses/{addressId} {
+      allow get: if isValidId(addressId) && isSignedIn() && (existing().uid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if isValidId(addressId) && isEmailVerified() && isValidWalletAddressDoc(incoming())
+        && (isAdmin() || incoming().uid == request.auth.uid)
+        && incoming().createdAt == request.time;
+      allow update, delete: if false;
+    }
+
+    // --- Supported Networks & Token Contracts ---
+    match /supported_networks/{networkId} {
+      allow get, list: if true;
+      allow create, update: if isValidId(networkId) && isAdmin() && isValidSupportedNetwork(incoming())
+        && incoming().updatedAt == request.time;
+      allow delete: if false;
+    }
+
+    match /supported_tokens/{tokenId} {
+      allow get, list: if true;
+      allow create, update: if isValidId(tokenId) && isAdmin() && isValidSupportedToken(incoming())
+        && incoming().updatedAt == request.time;
+      allow delete: if false;
+    }
+
+    // --- Wallet Security Policy ---
+    match /wallet_security_settings/{settingId} {
+      allow get, list: if isSignedIn();
+      allow create, update: if isValidId(settingId) && isAdmin() && isValidWalletSecuritySettings(incoming())
+        && incoming().updatedAt == request.time;
+      allow delete: if false;
+    }
+
+    // --- Idempotent Blockchain Events ---
+    match /blockchain_events/{eventId} {
+      allow get: if isValidId(eventId) && isSignedIn() && (existing().uid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if isValidId(eventId) && isEmailVerified() && isValidBlockchainEvent(incoming())
+        && (isAdmin() || incoming().uid == request.auth.uid)
+        && incoming().createdAt == request.time;
+      allow update, delete: if false;
+    }
+
+    // --- USDT Deposit Transactions ---
+    match /deposit_transactions/{depositId} {
+      allow get: if isValidId(depositId) && isSignedIn() && (existing().uid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if isValidId(depositId) && isEmailVerified() && isValidDepositTx(incoming())
+        && (isAdmin() || incoming().uid == request.auth.uid)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(depositId) && isAdmin() && isValidDepositTx(incoming())
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time;
+      allow delete: if false;
+    }
+
+    // --- USDT Withdrawal Transactions ---
+    match /withdrawal_transactions/{withdrawalId} {
+      allow get: if isValidId(withdrawalId) && isSignedIn() && (existing().uid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if isValidId(withdrawalId) && isEmailVerified() && isValidWithdrawalTx(incoming())
+        && (isAdmin() || (isKycVerifiedActive() && incoming().uid == request.auth.uid && incoming().twoFactorVerified == true && incoming().status in ['PENDING', 'UNDER_REVIEW', 'PROCESSING']))
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(withdrawalId) && isAdmin() && isValidWithdrawalTx(incoming())
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time;
+      allow delete: if false;
+    }
+
+    // --- Double-Entry Immutable Wallet Ledger ---
+    match /wallet_ledger/{entryId} {
+      allow get: if isValidId(entryId) && isSignedIn() && (existing().uid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if isValidId(entryId) && isEmailVerified() && isValidWalletLedgerEntry(incoming())
+        && (isAdmin() || incoming().uid == request.auth.uid)
+        && incoming().createdAt == request.time;
+      allow update, delete: if false;
+    }
+
+    // --- Escrow & Pending Withdrawal Balance Reservations ---
+    match /wallet_reservations/{reservationId} {
+      allow get: if isValidId(reservationId) && isSignedIn() && (existing().uid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if isValidId(reservationId) && isEmailVerified() && isValidWalletReservation(incoming())
+        && (isAdmin() || incoming().uid == request.auth.uid)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(reservationId) && isEmailVerified() && isValidWalletReservation(incoming())
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin() || (
+            isOwner(existing().uid)
+            && existing().purpose == 'P2P_ESCROW'
+            && existing().status == 'ACTIVE'
+            && incoming().status in ['RELEASED', 'REFUNDED']
+          )
+        );
+      allow delete: if false;
+    }
+
+    // --- Immutable Wallet & Trading Access Audit Logs ---
+    match /wallet_audit_logs/{logId} {
+      allow get, list: if isAdmin();
+      allow create: if isValidId(logId) && isEmailVerified() && isValidWalletAuditLog(incoming())
+        && (isAdmin() || incoming().actorUid == request.auth.uid)
+        && incoming().createdAt == request.time;
+      allow update, delete: if false;
+    }
+
+    // --- Multi-Coin Registry & Trading Controls ---
+    match /supported_coins/{coinId} {
+      allow get, list: if true;
+      allow create, update: if isValidId(coinId) && isAdmin() && isValidSupportedCoin(incoming())
+        && incoming().updatedAt == request.time;
+      allow delete: if false;
+    }
+
+    match /coin_trading_settings/{coinId} {
+      allow get, list: if true;
+      allow create, update: if isValidId(coinId) && isAdmin() && isValidCoinTradingSettings(incoming())
+        && incoming().updatedAt == request.time;
+      allow delete: if false;
+    }
+
+    match /coin_market_data/{coinId} {
+      allow get, list: if true;
+      allow create, update: if isValidId(coinId) && isAdmin() && incoming().updatedAt == request.time;
+      allow delete: if false;
+    }
+
+    match /coin_price_history/{historyId} {
+      allow get, list: if true;
+      allow create, update: if isValidId(historyId) && isAdmin() && incoming().updatedAt == request.time;
+      allow delete: if false;
+    }
+
+    match /coin_market_cache/{cacheId} {
+      allow get, list: if true;
+      allow create, update: if isValidId(cacheId) && isAdmin() && incoming().updatedAt == request.time;
+      allow delete: if false;
+    }
+
+    // --- User Coin Watchlists ---
+    match /coin_watchlists/{watchId} {
+      allow get: if isValidId(watchId) && isSignedIn() && (existing().uid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if isValidId(watchId) && isEmailVerified() && isValidCoinWatchlist(incoming())
+        && incoming().uid == request.auth.uid
+        && incoming().createdAt == request.time;
+      allow update: if false;
+      allow delete: if isValidId(watchId) && isSignedIn() && (existing().uid == request.auth.uid || isAdmin());
+    }
+
+    // --- Multi-Coin Target Price Alerts ---
+    match /coin_price_alerts/{alertId} {
+      allow get: if isValidId(alertId) && isSignedIn() && (existing().uid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if isValidId(alertId) && isEmailVerified() && isValidCoinPriceAlert(incoming())
+        && incoming().uid == request.auth.uid
+        && incoming().createdAt == request.time;
+      allow update: if isValidId(alertId) && isEmailVerified() && isValidCoinPriceAlert(incoming())
+        && isOwner(existing().uid)
+        && incoming().uid == existing().uid
+        && incoming().symbol == existing().symbol
+        && incoming().createdAt == existing().createdAt
+        && incoming().diff(existing()).affectedKeys().hasOnly(['isActive', 'triggered', 'lastTriggeredAtMs']);
+      allow delete: if isValidId(alertId) && isSignedIn() && (existing().uid == request.auth.uid || isAdmin());
+    }
+
+    // --- Multi-Coin Order Ledger ---
+    match /multi_coin_orders/{orderId} {
+      allow get: if isValidId(orderId) && isSignedIn() && (existing().buyerUid == request.auth.uid || existing().sellerUid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.buyerUid == request.auth.uid || resource.data.sellerUid == request.auth.uid || isAdmin());
+      allow create: if isValidId(orderId) && isEmailVerified() && isValidMultiCoinOrder(incoming())
+        && (isAdmin() || isKycVerifiedActive())
+        && (incoming().buyerUid == request.auth.uid || incoming().sellerUid == request.auth.uid)
+        && incoming().buyerUid != incoming().sellerUid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(orderId) && isEmailVerified() && isValidMultiCoinOrder(incoming())
+        && incoming().orderId == existing().orderId
+        && incoming().buyerUid == existing().buyerUid
+        && incoming().sellerUid == existing().sellerUid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (isAdmin() || isOwner(existing().buyerUid) || isOwner(existing().sellerUid));
+      allow delete: if false;
+    }
+
+    // --- Temporary Rate Price Locks ---
+    match /price_locks/{lockId} {
+      allow get: if isValidId(lockId) && isSignedIn() && (existing().uid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if isValidId(lockId) && isEmailVerified() && isValidPriceLock(incoming())
+        && incoming().uid == request.auth.uid
+        && incoming().status == 'LOCKED'
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(lockId) && isEmailVerified() && isValidPriceLock(incoming())
+        && isOwner(existing().uid)
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']);
+      allow delete: if false;
+    }
+
+    // --- Merchant API Keys (SHA-256 Hashes Only) ---
+    match /merchant_api_keys/{keyId} {
+      allow get: if isValidId(keyId) && isSignedIn() && (existing().uid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if isValidId(keyId) && isEmailVerified() && isValidMerchantApiKey(incoming())
+        && isKycVerifiedActive()
+        && incoming().uid == request.auth.uid
+        && incoming().revoked == false
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(keyId) && isEmailVerified() && isValidMerchantApiKey(incoming())
+        && (isAdmin() || isOwner(existing().uid))
+        && incoming().uid == existing().uid
+        && incoming().keyHash == existing().keyHash
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['revoked', 'label', 'updatedAt']);
+      allow delete: if false;
+    }
+
+    // --- Merchant HTTPS Webhooks ---
+    match /merchant_webhooks/{webhookId} {
+      allow get: if isValidId(webhookId) && isSignedIn() && (existing().uid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if isValidId(webhookId) && isEmailVerified() && isValidMerchantWebhook(incoming())
+        && isKycVerifiedActive()
+        && incoming().uid == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(webhookId) && isEmailVerified() && isValidMerchantWebhook(incoming())
+        && (isAdmin() || isOwner(existing().uid))
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time;
+      allow delete: if isValidId(webhookId) && isSignedIn() && (existing().uid == request.auth.uid || isAdmin());
+    }
+
+    // --- Public System Maintenance Windows ---
+    match /system_maintenance/{windowId} {
+      allow get, list: if true;
+      allow create, update: if isValidId(windowId) && isAdmin() && isValidMaintenanceWindow(incoming())
+        && incoming().updatedAt == request.time;
+      allow delete: if isValidId(windowId) && isAdmin();
+    }
+  }
+}
